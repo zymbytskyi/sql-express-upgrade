@@ -25,7 +25,7 @@ if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notma
 Move-Item "$bootstrap.partial" $bootstrap
 if((Get-Item $bootstrap).VersionInfo.ProductMajorPart -ne 16){throw 'Downloaded bootstrapper is not SQL 2022.'}
 $process=Start-Process $bootstrap -ArgumentList @('/ACTION=Download','/MEDIATYPE=Core','/QUIET','/ENU',('/MEDIAPATH="{0}"' -f $Destination)) -WindowStyle Hidden -PassThru -Wait
-if($process.ExitCode -ne 0){throw "Media download failed: $($process.ExitCode). Use existing full media via menu Deploy if offline."}
+if($process.ExitCode -ne 0){throw "Media download failed: $($process.ExitCode). Use -Mode Prepare -MediaPath with existing signed full media if offline."}
 $media=Join-Path $Destination 'SQLEXPR_x64_ENU.exe'
 $signature=Get-AuthenticodeSignature $media
 if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation' -or (Get-Item $media).VersionInfo.ProductMajorPart -ne 16){throw 'Full media is not valid Microsoft SQL 2022 media.'}

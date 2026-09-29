@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 5.1
 <# .SYNOPSIS Exercises fail-closed source checks without connecting to SQL or Hyper-V. #>
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -43,16 +43,14 @@ if((Quote-Sql "a'b") -cne "N'a''b'" -or (Quote-Name 'a]b') -cne '[a]]b]'){throw 
 $count++;Write-Output 'PASS: SQL literal and identifier escaping.'
 Write-Output "$count safety assertions passed. No live upgrade or rollback was performed."
 
-# Catch incorrect Hyper-V cmdlet parameter names before a live run.
-$controller=Join-Path $PSScriptRoot 'Invoke-HyperVSqlExpressUpgrade.ps1'
-$ast=[System.Management.Automation.Language.Parser]::ParseFile($controller,[ref]$tokens,[ref]$errors)
-if($errors.Count){throw ($errors.Message -join '; ')}
-foreach($command in $ast.FindAll({param($n)$n -is [System.Management.Automation.Language.CommandAst]},$true)){
-    $name=$command.GetCommandName()
-    if($name -notin @('Get-VM','Start-VM','Get-VMHardDiskDrive','Get-VMSnapshot','Checkpoint-VM','Export-VMSnapshot','Restore-VMSnapshot')){continue}
-    $definition=Get-Command $name -ErrorAction Stop
-    foreach($parameter in $command.CommandElements | Where-Object {$_ -is [System.Management.Automation.Language.CommandParameterAst]}){
-        if(-not $definition.Parameters.ContainsKey($parameter.ParameterName)){throw "Unsupported Hyper-V parameter: $name -$($parameter.ParameterName)"}
-    }
+. (Join-Path $PSScriptRoot 'LocalInstance.ps1')
+function Candidate($Name,$Version='14.0.1000.169',$Status='Running'){[pscustomobject]@{Instance=$Name;Version=$Version;Status=$Status}}
+if((Select-LocalExpressInstance -Candidates @(Candidate 'MSSQLSERVER')).Instance -ne 'MSSQLSERVER'){throw 'Default instance detection failed.'}
+if((Select-LocalExpressInstance -Candidates @(Candidate 'APPDATA')).Instance -ne 'APPDATA'){throw 'Custom named instance detection failed.'}
+$blocked=$false;try{Select-LocalExpressInstance -Candidates @((Candidate 'FIRST'),(Candidate 'SECOND'))|Out-Null}catch{$blocked=$true};if(-not$blocked){throw 'Ambiguous instance selection was not blocked.'}
+if((Select-LocalExpressInstance -Candidates @((Candidate 'FIRST'),(Candidate 'SECOND')) -Requested SECOND).Instance -ne 'SECOND'){throw 'Explicit local selection failed.'}
+foreach($test in @(@{Items=@();Name='No local instance'},@{Items=@(Candidate 'APP' '16.0.1000.6');Name='Already upgraded'},@{Items=@(Candidate 'APP' '14.0.1000.169' 'Stopped');Name='Stopped instance'})){
+    $blocked=$false;try{Select-LocalExpressInstance -Candidates $test.Items|Out-Null}catch{$blocked=$true};if(-not$blocked){throw "$($test.Name) was not blocked."}
 }
-Write-Output 'PASS: controller Hyper-V parameters match the installed cmdlets.'
+$blocked=$false;try{Select-LocalExpressInstance -Candidates @(Candidate 'APP') -Requested 'REMOTE\APP'|Out-Null}catch{$blocked=$true};if(-not$blocked){throw 'Remote target was not rejected.'}
+Write-Output 'PASS: eight local discovery/selection cases, including default, custom named, multiple, stopped and remote targets.'

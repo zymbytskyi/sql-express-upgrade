@@ -1,161 +1,166 @@
-# SQL Express 2017 to 2022 on Hyper-V
+# SQL Express 2017 to 2022 — local upgrade toolkit
 
-**Status: core workflow validated in the Hyper-V lab on 2026-09-28; public GitHub release 0.1.0.**
-Production use requires target-specific application acceptance and an approved current SQL 2022 servicing level. The tested target media is RTM 16.0.1000.6.
+Run this package **on the Windows server that hosts SQL Express**, in elevated
+64-bit Windows PowerShell. No Hyper-V module, VM name, remote computer name,
+WinRM endpoint or separate credentials are needed for the normal workflow.
+All scripts, prompts and documentation are English.
 
-The package separates preparation from downtime. Run the numbered menu on the
-Hyper-V host as an administrator. Supply a guest Windows administrator who is
-also SQL sysadmin. Credentials are used in memory through PowerShell Direct
-or an existing WinRM HTTPS endpoint with a pinned certificate;
-they are not saved in a plan or log.
+Release 0.2.0 replaces the host-oriented 0.1.0 menu. Start a new local runtime
+folder; do not reuse a host campaign.json. Existing 0.1.0 recovery images remain
+valuable and must not be deleted just because the package changed.
+
+## Install with PowerShell
+
+Open Windows PowerShell **as administrator inside the SQL server**:
 
 ```powershell
-.\Start-SqlExpressUpgradeMenu.ps1
+$ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSVersion.Major -le 5) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 }
+$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.2.0.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.2.0/Install.ps1' -OutFile $installer -UseBasicParsing
+Unblock-File -LiteralPath $installer
+Set-ExecutionPolicy -Scope Process RemoteSigned -Force
+& $installer
 ```
 
-Use a runtime campaign directory outside the downloaded source, for example
-`D:\SqlUpgradeCampaigns\Express2017-2022`. Restrict that directory and the guest
-backup directory to the operators and required service identities: the recovery
-export contains the entire VM, including its protected configuration.
+The installer downloads the versioned release ZIP, verifies its GitHub-published
+SHA-256 digest, extracts into `C:\Tools\SqlExpressUpgrade-v0.2.0` and opens the
+local menu. It never starts a SQL upgrade on installation. Existing destination
+folders are not overwritten. No password or SQL authentication prompt is used:
+the signed-in Windows account must be local administrator and SQL sysadmin.
 
-## Supported first scope
+Reopen after signing in or after a restart:
 
-- One dedicated Generation 2 Hyper-V VM with one English x64 standalone SQL
-  Server 2017 Express Database Engine instance; target SQL Server 2022 Express.
-- Windows Server 2016, 2019 or 2022; the lab uses Server 2022 Evaluation.
-- Windows authentication, local NTFS/ReFS database/backup/media paths and
-  ordinary database data/log files. Existing SQL service backup permissions.
-- No domain controllers, HA/WSFC/FCI/AG, replication, encrypted databases,
-  database snapshots, full-text/Advanced Services, pass-through disks or
-  pre-existing Hyper-V checkpoints.
-- Year 2017 means engine **14.x**; year 2022 means **16.x**. Engine **17.x** is
-  SQL Server 2025 and is explicitly rejected as an upgrade source.
+```powershell
+Set-ExecutionPolicy -Scope Process RemoteSigned -Force
+& C:\Tools\SqlExpressUpgrade-v0.2.0\Start-SqlExpressUpgradeMenu.ps1
+```
 
-The configured media build is frozen for a campaign. Setup runs offline with
-updates disabled. A current SQL 2022 CU/security update needs its own reviewed
-media and acceptance before production; this package does not silently download
-or choose a CU during downtime.
+## Detection and defaults
 
-Menu Configure saves the selected transport. HTTPS uses port 5986 and requires
-an exact certificate thumbprint obtained through a trusted channel. The package
-does not create listeners, open firewalls or change host TrustedHosts. Any
-temporary lab endpoint must be explicitly authorized and removed after testing.
+- Reads the local 64-bit SQL instance registry and Windows services.
+- One running SQL 2017 Express instance is selected automatically. Supports
+  `MSSQLSERVER`, `SQLEXPRESS` and custom named instances.
+- Multiple eligible instances produce a numbered choice, never a guessed target.
+  Only the selected instance is upgraded. Shared components and full-server
+  recovery can affect every instance; coordinate the whole server maintenance.
+- Live SQL identity, edition, version and sysadmin membership are checked before
+  preparing. SQL uses local shared-memory connections (`lpc:`), not TCP aliases.
+- Discovers the selected instance's configured backup directory automatically.
+  It must exist, be local and permit SQL service writes. The real backup test
+  verifies this before the maintenance day.
+- Default runtime folder: `C:\SqlExpressUpgradeData`. Plans, downloads, hashes,
+  backups metadata and state are stored outside the source package. SQL backups
+  remain in the SQL backup directory. Protect runtime/backups with operator and
+  required service access, and copy recovery material off the server.
+- Plans bind to the local computer/instance; workflow state also binds to its
+  Windows machine GUID. A mutex prevents concurrent sessions for one instance.
 
 ## Preparation day
 
-1. Configure the exact VM, instance, runtime directory and guest backup path.
-   The saved campaign binds to the VM GUID as well as its name.
-2. Menu Download uses the current version-specific Microsoft SQL 2022 Express bootstrapper, or
-   provide an existing full `SQLEXPR_x64_ENU.exe`. Download accepts only the
-   Microsoft HTTPS host and verifies its signature and engine major version.
-   The default bootstrapper URL and full download were tested on 2026-09-28; older 16.2211 bootstrapper versions are rejected by Microsoft. An explicit `-BootstrapperUri` or `-BootstrapperPath` can replace it after review. Evergreen links may point to SQL 2025; they are not accepted.
-3. Deploy the worker and full media to the guest. Configure checks the actual
-   SQL build, edition, language, instance count, OS and database features.
-4. Prepare extracts the offline media and records SHA-256 for every file.
-5. Preflight repeats live SQL identity, database scope, pending reboot, .NET,
-   service, media and capacity checks. Space demands are summed per volume
-   when system, staging and backup directories share a disk. Backup capacity
-   uses allocated database size plus headroom, without assuming compression.
-6. Backup runs CHECKDB, then COPY_ONLY/CHECKSUM full backups and VERIFYONLY for
-   `master`, `model`, `msdb` and all user databases. Failed SQL write permission
-   is discovered here, before the upgrade day.
-7. Restore rehearsal restores each user backup under a unique temporary name,
-   runs CHECKDB and drops only that temporary database. A failed restore is
-   retained for investigation. System database recovery uses the full VM image;
-   system backups are not restored over the running instance.
+1. **Prepare**: discover/select the local instance, find its backup directory,
+   download signed SQL 2022 Express media, configure a local plan, extract the
+   media, record SHA-256 hashes, then run preflight. Preparation can be rerun
+   after a pending reboot; completed media is validated instead of redownloaded.
+2. **Preflight**: verify SQL identity/build, database scope, .NET, pending reboot,
+   SQL service, media integrity and per-volume disk headroom.
+3. **Backup**: CHECKDB and COPY_ONLY/CHECKSUM backups of master/model/msdb and user
+   databases, followed by VERIFYONLY. New backups invalidate old rehearsal evidence.
+4. **Restore rehearsal**: restore user backups into unique temporary databases,
+   run CHECKDB and drop only those test databases. Failed restores are retained.
+5. **Recovery plan**: generate `RECOVERY.md` for this local server. Have the
+   infrastructure/backup owner capture and verify full-server recovery after
+   application writers stop. Keep its exact reference and restoration procedure.
 
-Retain the campaign, media, SQL backups and reports. Verify application/client
-compatibility using a representative test copy and application owner tests.
-VERIFYONLY alone is not a restore test. A database CHECKDB pass is not proof of
-application compatibility, login equivalence or acceptable query performance.
+The package supports English x64 standalone SQL 2017 Express Database Engine on
+Windows Server 2016/2019/2022 and corresponding supported Windows 10 builds.
+It blocks HA/WSFC/FCI/AG, replication, encrypted databases, snapshots,
+full-text/Advanced Services, offline databases and databases at the Express size
+ceiling. This is local automation across supported installations, not a claim
+that every SQL feature or operating system is supported.
 
 ## Upgrade day
 
-1. Stop application services, scheduled tasks and all external writers.
-   Prevent automatic application restart. The package does **not** discover or
-   stop arbitrary applications; this is an explicit operator prerequisite.
-2. Run menu 8. It repeats preflight, makes fresh backups and rehearses their
-   restore, then gracefully shuts down the VM. While OFF it creates a recovery
-   checkpoint and independent full snapshot export, hashing the exported files.
-   It starts the VM afterward. Keep application writes stopped.
-3. Run menu 9 within two hours. It verifies the recovery point and export,
-   repeats guest preflight and starts `/ACTION=Upgrade` for the saved instance.
-   Exit 0/3010 is followed by a graceful restart and database verification.
-   A failed/interrupted Setup is never automatically retried or rolled back.
-4. Run menu 10 if post-restart verification needs to be resumed. Two consecutive
-   SQL probes, ONLINE databases, unchanged user compatibility levels and
-   CHECKDB are required. Review SQL Setup logs under
-   `C:\Program Files\Microsoft SQL Server\160\Setup Bootstrap\Log`.
-5. Check application login, a representative read/write transaction, scheduled
-   work and performance against the baseline. Decide acceptance or rollback
-   **before enabling general application writes**.
+Stop all application services, integrations, schedulers and other writers; keep
+them stopped until acceptance or rollback. Automatic discovery/stopping of
+arbitrary applications is intentionally not performed.
 
-No script deletes recovery points or backups. Remove them only after explicit
-acceptance and according to retention/capacity policy. Checkpoints consume host
-space while retained; monitor both host storage and guest volumes.
+Choose **6 Upgrade**, enter the externally verified full-server recovery
+reference, then type `UPGRADE`. The reference is an operator attestation: this
+local script cannot validate a hypervisor or backup-provider recovery image.
+It repeats preflight, creates fresh SQL backups, rehearses their restore, and
+runs local Setup with `/ACTION=Upgrade` for the detected instance. Updates are
+disabled so the prepared media remains fixed. Setup result/state is saved before
+restart. No failed or interrupted Setup is blindly retried.
 
-## Rollback
+On success, the server restarts after 15 seconds. Sign in, reopen the same menu,
+and verification resumes automatically. **7 Verify** can repeat verification;
+**8 Restart** is available when Setup succeeded but restart is still pending.
+The boot timestamp must change before verification can accept a successful Setup.
 
-Run menu 11 with application writers stopped. Confirm the exact VM name and
-loss of **all** changes after capture. The script gracefully stops the VM,
-restores only the recorded checkpoint GUID, starts it, verifies the original
-SQL 2017 build and checks domain trust. It never restores a SQL 2022 backup into
-SQL 2017 and never attempts an in-place downgrade.
+Verification checks SQL 2022 Express, ONLINE databases, unchanged user database
+compatibility and CHECKDB. Application login, representative reads/writes,
+integrations, scheduled work and performance still require application acceptance.
+Only then reopen normal application writes.
 
-RPO is the cold recovery capture. All later SQL and non-SQL VM changes are lost.
-If application writes resumed, stop and explicitly decide how to preserve or
-reconcile those writes before rollback; automatic reverse data migration is not
-provided. Measure RTO during the lab drill rather than assuming a duration.
+Setup logs: `C:\Program Files\Microsoft SQL Server\160\Setup Bootstrap\Log`.
+Workflow state: `C:\SqlExpressUpgradeData\local-state.json`.
+An interrupted `Upgrading`/`SetupFailed` state requires diagnosis or recovery.
+No unattended startup task or saved administrator password is installed.
 
-If the checkpoint is missing, the rollback script stops. The independent export
-is retained for host disaster recovery: validate its recorded hashes, ensure
-the original VM is OFF, import the exported `.vmcx` as a copy into separate
-storage, keep its NIC disconnected until identity is verified, then reconnect
-only the chosen recovery VM. This emergency export-import path is a separate
-acceptance test; do not run two copies with the same machine/domain identity.
+## Rollback boundary
+
+There is no supported SQL 2022-to-2017 in-place downgrade. SQL 2022 backups cannot
+be restored on SQL 2017. Restore the complete pre-upgrade server image using your
+approved backup platform. This discards **all** server changes after capture.
+A script running inside that same server cannot restore its entire running OS.
+
+For Hyper-V, an **optional infrastructure-only** helper is supplied. It runs on
+the host, requires the VM already gracefully shut down, and captures a cold
+checkpoint plus independent hashed export. It never participates in local Setup:
+
+```powershell
+# Infrastructure operator, on the Hyper-V host, with the VM already OFF:
+.\optional\Invoke-HyperVRecovery.ps1 -Mode Capture -VMName 'YOUR_VM' -RecoveryDirectory 'D:\Recovery\SqlUpgrade01'
+# Record the returned checkpoint ID, start the VM, and use its LOCAL upgrade menu.
+# If rollback is chosen, gracefully shut down the VM again, then:
+.\optional\Invoke-HyperVRecovery.ps1 -Mode Restore -VMName 'YOUR_VM' -RecoveryDirectory 'D:\Recovery\SqlUpgrade01' -ConfirmDiscardChanges
+```
+
+For physical servers or other hypervisors, use the corresponding verified
+full-server restore procedure. After recovery check the original build, data,
+logins, application and domain access. SQL-only recovery on a rebuilt SQL 2017
+server requires separately tested restoration of logins/SIDs, certificates and
+server configuration; user backups alone are not complete rollback.
 
 ## Automation interface
 
-Use `Invoke-HyperVSqlExpressUpgrade.ps1` with the same `-VMName`, `-WorkRoot`
-and in-memory `-Credential`. Modes match the menu:
-
 ```powershell
-$credential = Get-Credential
-$campaign = @{
-    VMName = 'SQLEXPRESS17'
-    WorkRoot = 'D:\SqlUpgradeCampaigns\Express2017-2022'
-    Credential = $credential
-}
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Configure
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Deploy -MediaPath 'D:\Media\SQLEXPR_x64_ENU.exe'
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Prepare
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Preflight
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Backup
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Rehearse
-# After stopping all writers:
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Capture -ConfirmDowntime
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Upgrade -ConfirmDowntime
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Verify
-# Only if the decision is to discard every change after capture:
-.\Invoke-HyperVSqlExpressUpgrade.ps1 @campaign -Mode Rollback -ConfirmDowntime -ConfirmDiscardChanges
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Discover
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Prepare
+# Optional override only when needed:
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Prepare -InstanceName APPDATA -MediaPath D:\Media\SQLEXPR_x64_ENU.exe -WorkRoot D:\UpgradeData
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Backup
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Rehearse
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Recovery
+# After writers stop and infrastructure recovery has been verified:
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Upgrade -ConfirmDowntime -RecoveryReference 'Verified backup job or checkpoint ID'
+# Reopen after restart, or explicitly verify:
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Verify
 ```
 
-## Acceptance record
+`-NoRestart` is available for controlled maintenance orchestration/testing; it
+leaves `RestartRequired` and cannot bypass the actual reboot verification gate.
 
-- [x] Thirteen isolated safety assertions for wrong version/edition/host,
-  missing privilege, HA, database state/features, size ceiling and SQL escaping.
-- [x] Domain-joined dedicated lab VM, SQL 2017 Express 14.0.1000.169 and two baseline rows verified on 2026-09-28. Temporary HTTPS listener, host-only rule, certificate and private answer media removed.
-- [x] Controller preparation and full media download; extra-media-file rejection; actual guest capacity guard; injected pending-reboot signal (no registry mutation).
-- [ ] Interactive numbered-menu walkthrough (controller modes tested directly).
-- [x] Real backup, VERIFYONLY, scratch restore and CHECKDB (four databases).
-- [x] Offline 14.0.1000.169 to 16.0.1000.6 upgrade and graceful restart.
-- [x] Synthetic read/write probe, row checksum and database compatibility comparison.
-- [x] Full-VM checkpoint rollback to 14.0.1000.169, original two rows/checksum and domain trust. The post-upgrade inserted row was discarded. SQL access was revalidated; a complete login inventory comparison was not performed.
-- [ ] Optional host-disaster export-import drill and measured RTO (independent export created and hash-validated; checkpoint rollback tested).
-Public source package: https://github.com/zymbytskyi/sql-express-upgrade (no lab credentials, media or runtime data).
+## Validation and servicing
+
+See CHANGELOG.md for the release's actual lab evidence. Run `Test-Safety.ps1`
+for isolated source/discovery guards; it neither upgrades SQL nor needs Hyper-V.
+The prepared target media is SQL 2022 RTM 16.0.1000.6. A current approved CU/security
+update and application-specific acceptance are required before production use.
+The package does not silently select or install a CU during downtime.
 
 ## Microsoft references
 
-- [Supported SQL 2022 upgrade paths](https://learn.microsoft.com/en-us/sql/database-engine/install-windows/supported-version-and-edition-upgrades-2022?view=sql-server-ver16)
-- [SQL 2017 operating system requirements](https://learn.microsoft.com/en-us/sql/sql-server/install/hardware-and-software-requirements-for-installing-sql-server-2017?view=sql-server-ver17)
-- [SQL backup/restore version restrictions](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/backup-restore/backup-restore-operations)
+- [SQL 2022 upgrade paths](https://learn.microsoft.com/en-us/sql/database-engine/install-windows/supported-version-and-edition-upgrades-2022?view=sql-server-ver16)
+- [SQL backup version restrictions](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/backup-restore/backup-restore-operations)

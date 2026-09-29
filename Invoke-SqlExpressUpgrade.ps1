@@ -38,7 +38,7 @@ function Read-Plan {
     $p
 }
 function Invoke-Query([string]$Instance, [string]$Sql) {
-    $server = if ($Instance -eq 'MSSQLSERVER') { '.' } else { ".\$Instance" }
+    $server = if ($Instance -eq 'MSSQLSERVER') { 'lpc:.' } else { "lpc:.\$Instance" }
     $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
     $builder['Data Source']=$server; $builder['Initial Catalog']='master'; $builder['Integrated Security']=$true; $builder['Connect Timeout']=15
     $connection = New-Object System.Data.SqlClient.SqlConnection $builder.ConnectionString
@@ -117,7 +117,7 @@ function Invoke-Configure {
     $os=Get-CimInstance Win32_OperatingSystem
     if ([int]$os.BuildNumber -lt 14393 -or [int]$os.BuildNumber -ge 26100) { throw 'This first package supports Windows Server 2016/2019/2022 and corresponding Windows 10 builds; review other operating systems separately.' }
     $registry=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL'
-    if (@($registry.PSObject.Properties | Where-Object Name -NotLike 'PS*').Count -ne 1) { throw 'This first package requires a dedicated VM with one SQL instance; full-VM rollback affects every instance.' }
+
     $instanceId=$registry.$InstanceName
     $setup=Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceId\Setup"
     if ($setup.Language -ne 1033) { throw 'This package uses English media and requires an English SQL source.' }
