@@ -5,10 +5,7 @@ param(
     [ValidateSet('Menu','Discover','Prepare','Preflight','Backup','Rehearse','Recovery','Upgrade','Verify','Restart')][string]$Mode='Menu',
     [string]$WorkRoot='C:\SqlExpressUpgradeData',
     [ValidatePattern('^[A-Za-z][A-Za-z0-9_]{0,15}$')][string]$InstanceName,
-    [string]$MediaPath,
-    [switch]$ConfirmDowntime,
-    [string]$RecoveryReference,
-    [switch]$NoRestart
+    [string]$MediaPath
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -34,6 +31,7 @@ if(Test-Path $planPath){
 if($InstanceName -notmatch '^[A-Za-z][A-Za-z0-9_]{0,15}$'){throw 'Invalid local instance name.'}
 $mutex=[Threading.Mutex]::new($false,'Global\SqlExpressUpgrade-'+$InstanceName)
 $held=$false
+$script:transcriptStarted=$false
 try{
     try{$held=$mutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{$held=$true}
     if(-not$held){throw 'Another upgrade session is already open for this instance. Close it before retrying.'}
@@ -98,60 +96,88 @@ try{
         $lines | Set-Content (Join-Path $WorkRoot 'RECOVERY.md') -Encoding UTF8
         $lines | ForEach-Object {Write-Host $_}
     }
+    function Get-LiveBuild {
+        $server=if($InstanceName -eq 'MSSQLSERVER'){'lpc:.'}else{"lpc:.\$InstanceName"}
+        $connection=New-Object Data.SqlClient.SqlConnection "Server=$server;Database=master;Integrated Security=True;Connect Timeout=10"
+        try{$connection.Open();$command=$connection.CreateCommand();$command.CommandText="SELECT CONVERT(nvarchar(32),SERVERPROPERTY('ProductVersion'));";[string]$command.ExecuteScalar()}finally{$connection.Dispose()}
+    }
     function Verify-Local {
-        if($script:state.Phase -notin @('RestartRequired','DatabaseChecksPassed')){throw 'This workflow has no successful Setup awaiting verification. Inspect local-state.json and SQL Setup logs.'}
-        if($script:state.Phase -eq 'RestartRequired' -and (Get-Boot) -eq $script:state.BootBeforeSetup){throw 'Restart this server before post-upgrade verification.'}
+        $build=Get-LiveBuild
+        if($build -notlike '16.*'){throw "SQL is still $build. Complete the SQL 2022 upgrade wizard first. No upgrade is performed by Verify."}
+        if($script:state.BootBeforeSetup -and (Get-Boot) -eq $script:state.BootBeforeSetup){throw 'Restart the server after completing the wizard, then run Verify again.'}
         Run-Worker Verify
         $script:state.Phase='DatabaseChecksPassed';Save-State
     }
     function Restart-Local {
-        if($script:state.Phase -ne 'RestartRequired'){throw 'The workflow is not awaiting a restart.'}
+        if((Get-LiveBuild) -notlike '16.*'){throw 'SQL 2022 is not installed yet. Finish the wizard before requesting restart.'}
+        if(Get-Process -Name setup -ErrorAction SilentlyContinue){throw 'SQL Setup is still open. Complete and close it before restarting.'}
         Write-Host 'Restarting in 15 seconds. Sign in again and reopen this same menu to verify.'
-        shutdown.exe /r /t 15 /d p:4:2 /c 'SQL Express local upgrade verification'
+        shutdown.exe /r /t 15 /d p:4:2 /c 'SQL Express manual upgrade verification'
         if($LASTEXITCODE -ne 0){throw "Restart request failed: $LASTEXITCODE"}
     }
-    function Upgrade-Local([bool]$Downtime,[string]$Recovery){
-        if(-not$Downtime -or [string]::IsNullOrWhiteSpace($Recovery)){throw 'Stop all writers and provide a verified external full-server recovery reference before Upgrade.'}
-        if($script:state.Phase -ne 'Prepared'){throw 'Run Prepare first. A failed/interrupted Setup must be investigated, not rerun.'}
+    function Open-UpgradeWizard {
+        if([Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0){throw 'Open the menu in an interactive desktop/RDP PowerShell window on this SQL server to launch Setup Wizard.'}
+        if((Get-LiveBuild) -notlike '14.*'){throw 'Wizard launch requires the original SQL 2017 instance. Use Verify if already upgraded.'}
+        if(Get-Process -Name setup -ErrorAction SilentlyContinue){throw 'Setup is already open. Switch to the existing Setup window.'}
         Run-Worker Preflight
-        Run-Worker Backup
-        Run-Worker Rehearse
-        Write-RecoveryPlan
-        $script:state.RecoveryReference=$Recovery
+        $instructions=@(
+            '# Manual SQL Server 2022 upgrade',
+            "Target: $env:COMPUTERNAME\$InstanceName. Upgrade this existing instance; do not create a new instance.",
+            'Before proceeding: stop application writers, take fresh backups (menu 3), test restore (menu 4), and verify full-server recovery (menu 5).',
+            '1. The launcher opens the interactive Upgrade workflow. If Installation Center appears instead: Installation > Upgrade from a previous version of SQL Server.',
+            '2. Confirm SQL Server 2022 Express. Review and accept the license terms yourself.',
+            '3. Keep Product Updates disabled for this prepared media. Review Global Rules and resolve every failure.',
+            "4. Select Instance: choose $InstanceName. Confirm the existing SQL 2017 instance; do not select New installation.",
+            '5. Review detected features, instance configuration and Upgrade Rules. Keep existing settings unless an approved change is required.',
+            '6. Ready to Upgrade: verify the target and feature summary. Click Upgrade yourself.',
+            '7. Wait for Complete. Confirm every feature succeeded. Save the Summary/Detail log locations and close Setup.',
+            '8. Restart Windows manually if requested; this runbook requires a restart before final acceptance. Menu 8 is an optional explicitly confirmed restart.',
+            '9. Sign in again, reopen this menu and choose 7 Verify. Test application reads/writes before reopening normal traffic.',
+            'If Setup fails, retain logs, investigate or restore the external pre-upgrade server image. Do not uninstall SQL or attempt an in-place downgrade.'
+        )
+        $instructionsPath=Join-Path $WorkRoot 'MANUAL-UPGRADE.md'
+        $instructions | Set-Content $instructionsPath -Encoding UTF8
+        $instructions | ForEach-Object {Write-Host $_}
+        Write-Host "Instructions saved: $instructionsPath"
+        $previous=$script:state.Phase
         $script:state.BootBeforeSetup=Get-Boot
-        $script:state.UpgradeStartedUtc=[datetime]::UtcNow.ToString('o')
-        $script:state.Phase='Upgrading';Save-State
-        try{
-            $setup=Join-Path $WorkRoot 'Media2022\setup.exe'
-            $process=Start-Process -FilePath $setup -ArgumentList @('/Q','/ACTION=Upgrade',"/INSTANCENAME=$InstanceName",'/IACCEPTSQLSERVERLICENSETERMS','/UPDATEENABLED=False') -WindowStyle Hidden -PassThru -Wait
-            $script:state.SetupExitCode=$process.ExitCode
-            if($process.ExitCode -notin @(0,3010)){throw "SQL Setup failed ($($process.ExitCode)). Inspect SQL Setup Bootstrap logs. Recovery is external; no downgrade was attempted."}
-            $script:state.Phase='RestartRequired';Save-State
-        }catch{$script:state.Phase='SetupFailed';Save-State;throw}
-        if($NoRestart){Write-Host 'Setup succeeded. Restart and reopen the menu to verify.'}else{Restart-Local}
+        $script:state.Phase='WizardOpened';Save-State
+        try {
+            # Interactive only: no /Q, /QS, license acceptance or automatic restart.
+            $process=Start-Process -FilePath (Join-Path $WorkRoot 'Media2022\setup.exe') -ArgumentList @('/ACTION=Upgrade',"/INSTANCENAME=$InstanceName",'/UPDATEENABLED=False') -PassThru
+            Write-Host "Setup Wizard opened (PID $($process.Id)). Complete the wizard yourself. The menu does not click Upgrade or restart Windows."
+        }catch{$script:state.Phase=$previous;Save-State;throw}
+    }
+    function Invoke-VisibleAction([string]$Label,[scriptblock]$Action){
+        $timer=[Diagnostics.Stopwatch]::StartNew()
+        Write-Host "`n[$(Get-Date -Format HH:mm:ss)] START: $Label" -ForegroundColor Cyan
+        try{& $Action;Write-Host "[$(Get-Date -Format HH:mm:ss)] SUCCESS: $Label ($([math]::Round($timer.Elapsed.TotalSeconds,1)) seconds)" -ForegroundColor Green}
+        catch{Write-Host "[$(Get-Date -Format HH:mm:ss)] FAILED: $Label" -ForegroundColor Red;Write-Host $_.Exception.Message -ForegroundColor Red}
+        Write-Host "Reports and instructions: $WorkRoot"
+        [void](Read-Host 'Press Enter to return to the menu')
     }
     if($Mode -eq 'Menu'){
-        if($script:state.Phase -eq 'RestartRequired' -and (Get-Boot) -ne $script:state.BootBeforeSetup){try{Verify-Local}catch{Write-Warning $_.Exception.Message}}
+        $transcript=Join-Path $WorkRoot ('Menu-'+(Get-Date -Format yyyyMMdd-HHmmss)+'-'+$PID+'.log')
+        Start-Transcript -Path $transcript -Force | Out-Null
+        $script:transcriptStarted=$true
+        Write-Host "Session log: $transcript"
+        Write-Host 'Manual upgrade workflow: choose 7 after completing Setup and restarting Windows.'
         do{
             Write-Host "`nLOCAL SQL Express 2017 -> 2022 | $env:COMPUTERNAME\$InstanceName"
             Write-Host "Phase: $($script:state.Phase) | Runtime: $WorkRoot"
             Write-Host '1 Prepare (detect/download/configure) | 2 Preflight | 3 Backup | 4 Restore rehearsal'
-            Write-Host '5 Recovery plan | 6 Upgrade | 7 Verify after restart | 8 Restart after Setup | 0 Exit'
-            $choice=Read-Host 'Choose'
+            Write-Host '5 Show recovery plan | 6 Open SQL Setup Wizard | 7 Verify after restart | 8 Restart (confirm) | 0 Exit'
+            $choice=(Read-Host 'Choose').Trim()
             try{
                 switch($choice){
-                    '1' {Prepare-Local}
-                    '2' {Run-Worker Preflight}
-                    '3' {Assert-PreparationPhase;Run-Worker Backup}
-                    '4' {Assert-PreparationPhase;Run-Worker Rehearse}
-                    '5' {Write-RecoveryPlan}
-                    '6' {
-                        Write-Host 'Stop all writers. Full-server recovery must already be captured and verified outside this server.'
-                        $reference=Read-Host 'Recovery image/checkpoint ID or backup job reference'
-                        if((Read-Host 'Type UPGRADE to confirm downtime, recovery readiness and local upgrade') -ceq 'UPGRADE'){Upgrade-Local $true $reference}
-                    }
-                    '7' {Verify-Local}
-                    '8' {if((Read-Host 'Type RESTART') -ceq 'RESTART'){Restart-Local}}
+                    '1' {Invoke-VisibleAction 'Prepare' {Prepare-Local}}
+                    '2' {Invoke-VisibleAction 'Preflight' {Run-Worker Preflight}}
+                    '3' {Invoke-VisibleAction 'Backup' {Assert-PreparationPhase;Run-Worker Backup}}
+                    '4' {Invoke-VisibleAction 'Restore rehearsal' {Assert-PreparationPhase;Run-Worker Rehearse}}
+                    '5' {Invoke-VisibleAction 'Recovery plan' {Write-RecoveryPlan;Write-Host "Saved: $(Join-Path $WorkRoot 'RECOVERY.md')"}}
+                    '6' {Invoke-VisibleAction 'Open SQL Setup Wizard' {Open-UpgradeWizard}}
+                    '7' {Invoke-VisibleAction 'Verify' {Verify-Local}}
+                    '8' {Invoke-VisibleAction 'Restart' {if((Read-Host 'Type RESTART to restart this computer') -ceq 'RESTART'){Restart-Local}else{Write-Host 'Restart canceled.'}}}
                     '0' {} default {Write-Host 'Unknown choice.'}
                 }
             }catch{Write-Warning $_.Exception.Message}
@@ -160,8 +186,8 @@ try{
         switch($Mode){
             Prepare {Prepare-Local} Preflight {Run-Worker Preflight}
             Backup {Assert-PreparationPhase;Run-Worker Backup} Rehearse {Assert-PreparationPhase;Run-Worker Rehearse}
-            Recovery {Write-RecoveryPlan} Upgrade {Upgrade-Local ([bool]$ConfirmDowntime) $RecoveryReference}
+            Recovery {Write-RecoveryPlan} Upgrade {Open-UpgradeWizard}
             Verify {Verify-Local} Restart {Restart-Local}
         }
     }
-}finally{if($held){$mutex.ReleaseMutex()};$mutex.Dispose()}
+}finally{if($script:transcriptStarted){Stop-Transcript | Out-Null};if($held){$mutex.ReleaseMutex()};$mutex.Dispose()}

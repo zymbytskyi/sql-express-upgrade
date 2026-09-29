@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 - 2026-09-29
+
+- Display timestamped START/SUCCESS/FAILED, elapsed time, a result pause and per-session transcripts for menu actions; show media hash and restore progress.
+- Menu 6 opens only the interactive Upgrade wizard, prints/saves selected-instance instructions, and never runs silent Setup or automatically restarts.
+- Verify now inspects the actual SQL build after a manual wizard upgrade; rejects SQL 2017 immediately and preserves the reboot gate. Restart remains explicitly confirmed.
+- Existing v0.2.0 plan/media/backups are reused unchanged. Install the new package in its own versioned directory.
+- Live SQLEXPRESS17 menu tests passed for 2 (Preflight), 4 (actual restore and CHECKDB) and 5 (Recovery plan); 7 correctly rejected the unchanged SQL 2017 instance.
+- Wizard launch parameters tested with a mocked process launcher; no new SQL upgrade was performed for this UI fix.
+
 ## 0.2.0 - 2026-09-29
 
 - Local-server entry point: no VM/server-name or credential prompts, no Hyper-V dependency.

@@ -5,7 +5,7 @@ Run this package **on the Windows server that hosts SQL Express**, in elevated
 WinRM endpoint or separate credentials are needed for the normal workflow.
 All scripts, prompts and documentation are English.
 
-Release 0.2.0 replaces the host-oriented 0.1.0 menu. Start a new local runtime
+Release 0.2.1 adds visible results and a manual wizard. For migration from the host-oriented 0.1.0 menu, start a new local runtime
 folder; do not reuse a host campaign.json. Existing 0.1.0 recovery images remain
 valuable and must not be deleted just because the package changed.
 
@@ -16,15 +16,15 @@ Open Windows PowerShell **as administrator inside the SQL server**:
 ```powershell
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion.Major -le 5) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 }
-$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.2.0.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.2.0/Install.ps1' -OutFile $installer -UseBasicParsing
+$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.2.1.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.2.1/Install.ps1' -OutFile $installer -UseBasicParsing
 Unblock-File -LiteralPath $installer
 Set-ExecutionPolicy -Scope Process RemoteSigned -Force
 & $installer
 ```
 
 The installer downloads the versioned release ZIP, verifies its GitHub-published
-SHA-256 digest, extracts into `C:\Tools\SqlExpressUpgrade-v0.2.0` and opens the
+SHA-256 digest, extracts into `C:\Tools\SqlExpressUpgrade-v0.2.1` and opens the
 local menu. It never starts a SQL upgrade on installation. Existing destination
 folders are not overwritten. No password or SQL authentication prompt is used:
 the signed-in Windows account must be local administrator and SQL sysadmin.
@@ -33,7 +33,7 @@ Reopen after signing in or after a restart:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process RemoteSigned -Force
-& C:\Tools\SqlExpressUpgrade-v0.2.0\Start-SqlExpressUpgradeMenu.ps1
+& C:\Tools\SqlExpressUpgrade-v0.2.1\Start-SqlExpressUpgradeMenu.ps1
 ```
 
 ## Detection and defaults
@@ -79,34 +79,49 @@ full-text/Advanced Services, offline databases and databases at the Express size
 ceiling. This is local automation across supported installations, not a claim
 that every SQL feature or operating system is supported.
 
-## Upgrade day
+## Manual upgrade day
 
-Stop all application services, integrations, schedulers and other writers; keep
-them stopped until acceptance or rollback. Automatic discovery/stopping of
-arbitrary applications is intentionally not performed.
+Every menu action prints START and SUCCESS/FAILED, then waits for Enter before
+returning to the menu. Media verification prints progress counts. The full menu
+session is saved to `Menu-*.log` in the runtime folder. Item 4 also prints which
+backup is being restored; its evidence is `rehearsal.json`. Item 5 prints and
+saves `RECOVERY.md` without upgrading anything.
 
-Choose **6 Upgrade**, enter the externally verified full-server recovery
-reference, then type `UPGRADE`. The reference is an operator attestation: this
-local script cannot validate a hypervisor or backup-provider recovery image.
-It repeats preflight, creates fresh SQL backups, rehearses their restore, and
-runs local Setup with `/ACTION=Upgrade` for the detected instance. Updates are
-disabled so the prepared media remains fixed. Setup result/state is saved before
-restart. No failed or interrupted Setup is blindly retried.
+1. Stop application writers and verify external full-server recovery.
+2. Run menu 2, then menu 3 for fresh backups and menu 4 for restore rehearsal.
+3. Choose **6 Open SQL Setup Wizard**. It validates prepared media and opens
+   interactive SQL Setup for the detected instance. It does not run quiet Setup,
+   accept the license, click Upgrade, or restart the server. Use an interactive
+   desktop/RDP PowerShell window; Session 0 launch is blocked.
+4. Follow `MANUAL-UPGRADE.md`, printed and saved in the runtime folder:
+   - If Installation Center appears: **Installation > Upgrade from a previous
+     version of SQL Server**.
+   - Confirm SQL Server 2022 Express, review and accept license terms yourself.
+   - Leave Product Updates disabled for the prepared media; resolve failed rules.
+   - **Select Instance**: choose the detected existing SQL 2017 instance.
+     Do not choose a new installation.
+   - Review features, instance configuration and Upgrade Rules.
+   - At **Ready to Upgrade**, check the target and click **Upgrade** yourself.
+   - Wait for **Complete**, confirm every feature succeeded, save logs and close
+     Setup. Canceling before clicking Upgrade leaves SQL unchanged. If Setup has already modified components, inspect its logs before deciding whether to retry or recover.
+5. Restart Windows manually after successful Setup. Optional menu 8 asks for
+   `RESTART` and checks that SQL 2022 is installed and Setup is closed.
+6. Sign in, reopen the menu, choose **7 Verify**. It checks the actual local SQL
+   build and works after manual wizard completion; it does not require a recorded
+   unattended Setup exit code. SQL 2017 is rejected immediately. If the wizard
+   was launched here, the boot timestamp must change before acceptance.
+7. Test application login, reads/writes, integrations and performance before
+   reopening normal traffic.
 
-On success, the server restarts after 15 seconds. Sign in, reopen the same menu,
-and verification resumes automatically. **7 Verify** can repeat verification;
-**8 Restart** is available when Setup succeeded but restart is still pending.
-The boot timestamp must change before verification can accept a successful Setup.
-
-Verification checks SQL 2022 Express, ONLINE databases, unchanged user database
-compatibility and CHECKDB. Application login, representative reads/writes,
-integrations, scheduled work and performance still require application acceptance.
-Only then reopen normal application writes.
+No upgrade or reboot runs automatically in this release. The old unattended
+`-ConfirmDowntime`, `-RecoveryReference` and `-NoRestart` parameters were removed.
+`-Mode Upgrade` now opens the interactive wizard. `-Mode Verify` verifies the
+manually upgraded instance. The normal menu never requests a VM or remote host.
 
 Setup logs: `C:\Program Files\Microsoft SQL Server\160\Setup Bootstrap\Log`.
-Workflow state: `C:\SqlExpressUpgradeData\local-state.json`.
-An interrupted `Upgrading`/`SetupFailed` state requires diagnosis or recovery.
-No unattended startup task or saved administrator password is installed.
+Runtime: `C:\SqlExpressUpgradeData`. Keep the existing 0.2.0 plan/media/backups
+when installing 0.2.1 into its new package folder; do not repeat Configure.
+A failed Setup requires diagnosis or external recovery, not a blind retry.
 
 ## Rollback boundary
 
@@ -143,14 +158,11 @@ server configuration; user backups alone are not complete rollback.
 .\Start-SqlExpressUpgradeMenu.ps1 -Mode Backup
 .\Start-SqlExpressUpgradeMenu.ps1 -Mode Rehearse
 .\Start-SqlExpressUpgradeMenu.ps1 -Mode Recovery
-# After writers stop and infrastructure recovery has been verified:
-.\Start-SqlExpressUpgradeMenu.ps1 -Mode Upgrade -ConfirmDowntime -RecoveryReference 'Verified backup job or checkpoint ID'
+# Opens the interactive wizard; complete Setup yourself:
+.\Start-SqlExpressUpgradeMenu.ps1 -Mode Upgrade
 # Reopen after restart, or explicitly verify:
 .\Start-SqlExpressUpgradeMenu.ps1 -Mode Verify
 ```
-
-`-NoRestart` is available for controlled maintenance orchestration/testing; it
-leaves `RestartRequired` and cannot bypass the actual reboot verification gate.
 
 ## Validation and servicing
 

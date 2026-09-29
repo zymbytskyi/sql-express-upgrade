@@ -1,9 +1,9 @@
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
 [CmdletBinding()]
-param([string]$Destination='C:\Tools\SqlExpressUpgrade-v0.2.0',[switch]$NoLaunch)
+param([string]$Destination='C:\Tools\SqlExpressUpgrade-v0.2.1',[switch]$NoLaunch)
 $ErrorActionPreference='Stop'
-$version='v0.2.0'
+$version='v0.2.1'
 if(Test-Path -LiteralPath $Destination){throw "Destination exists: $Destination. Run Start-SqlExpressUpgradeMenu.ps1 there, or choose a new directory."}
 if($PSVersionTable.PSVersion.Major -le 5){[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12}
 $zip=Join-Path $env:TEMP ('SqlExpressUpgrade-'+[guid]::NewGuid().ToString('N')+'.zip')

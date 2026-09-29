@@ -158,7 +158,11 @@ function Invoke-Preflight {
     if (-not $p.Prepared -or @($p.MediaFiles).Count -eq 0) { throw 'Run Prepare first.' }
     $media=Join-Path $WorkRoot 'Media2022'
     if (@(Get-ChildItem $media -File -Recurse).Count -ne @($p.MediaFiles).Count) { throw 'Media file count changed.' }
+    Write-Host "Checking $(@($p.MediaFiles).Count) media file hashes. Please wait..."
+    $checked=0
     foreach ($file in $p.MediaFiles) {
+        $checked++
+        if($checked % 30 -eq 0){Write-Host "Media verification: $checked / $(@($p.MediaFiles).Count)"}
         $path=[IO.Path]::GetFullPath((Join-Path $media $file.Path))
         if (-not $path.StartsWith($media+'\',[StringComparison]::OrdinalIgnoreCase) -or (Get-FileHash -LiteralPath $path).Hash -ne $file.Sha256) { throw "Media changed: $($file.Path)" }
     }
@@ -207,8 +211,10 @@ function Invoke-Rehearse {
     if ($backups.PlanId -ne $p.Id -or $backups.Build -ne $p.SourceBuild) { throw 'Backups do not match this plan.' }
     $restoreRoot=Join-Path $p.BackupDirectory ('Rehearsal-'+[guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $restoreRoot | Out-Null
+    Write-Host 'Starting actual backup restore and CHECKDB rehearsal. This can take several minutes.'
     foreach ($backup in @($backups.Files | Where-Object Database -NotIn @('master','model','msdb'))) {
         if ((Get-FileHash $backup.Path).Hash -ne $backup.Sha256) { throw "Backup changed: $($backup.Path)" }
+        Write-Host "Restoring backup for $($backup.Database)..."
         $literal=Quote-Sql $backup.Path
         $files=@(Invoke-Query $p.Instance "RESTORE FILELISTONLY FROM DISK=$literal;")
         if (@($files | Where-Object Type -NotIn @('D','L')).Count) { throw 'Only ordinary data/log database files are supported by rehearsal.' }
