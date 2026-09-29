@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 - 2026-09-29
+
+- Generate UPGRADE-PLAN.txt and ROLLBACK-PLAN.txt with target-specific paths, step-by-step GUI/actions, script purpose/execution location and recovery acceptance.
+- Menu 2 recommends a local backup folder using live SQL sizes and volume capacity, accepts a custom path, preserves old backups and scopes new-folder permissions to the selected SQL service.
+- Final readiness records backup set age, actual file paths/sizes and a technical result in FINAL-READINESS.txt; checks all backup hashes/scope and reports failures explicitly.
+- Isolated guidance tests cover disk ranking/insufficient space, custom-folder selection, document content, old/missing/modified backups and readiness results. Existing safety/menu tests pass. No active lab VM, Setup, reboot or recovery was touched; live new-folder SQL write validation remains pending.
+
 ## 0.3.0 - 2026-09-29
 
 - Simplified menu to Prepare, Backups, Final readiness check, Upgrade Wizard, Verify and Rollback plan.

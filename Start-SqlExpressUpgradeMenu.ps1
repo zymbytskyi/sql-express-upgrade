@@ -11,6 +11,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if(-not[Environment]::Is64BitProcess){throw 'Run 64-bit PowerShell as administrator on the SQL server.'}
 . (Join-Path $PSScriptRoot 'LocalInstance.ps1')
+. (Join-Path $PSScriptRoot 'OperatorGuidance.ps1')
 $WorkRoot=[IO.Path]::GetFullPath($WorkRoot).TrimEnd('\')
 if($WorkRoot -notmatch '^[A-Za-z]:\\' -or $WorkRoot.Contains('"')){throw 'Use an absolute local runtime directory without quotes.'}
 if($WorkRoot -eq $PSScriptRoot -or $WorkRoot.StartsWith($PSScriptRoot+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Keep runtime data outside the package directory.'}
@@ -56,6 +57,7 @@ try{
         $path
     }
     function Assert-PreparationPhase {
+        if(Get-Process -Name setup -ErrorAction SilentlyContinue){throw 'SQL Setup is open. Complete and close it before changing preparation or backups.'}
         if($script:state.Phase -in @('Upgrading','SetupFailed','RestartRequired','DatabaseChecksPassed')){throw 'Setup already started. Use Verify after restart or follow the recovery plan; do not rerun preparation or Setup blindly.'}
     }
     function Prepare-Local {
@@ -71,6 +73,7 @@ try{
             & $worker -Mode Configure -WorkRoot $WorkRoot -InstanceName $InstanceName -MediaPath $media -BackupDirectory $backup
         }
         $p=Get-Content $planPath -Raw | ConvertFrom-Json
+        Write-OperatorPlans
         if(-not$p.Prepared){Run-Worker Prepare}
         Run-Worker Preflight
         $script:state.Phase='Prepared';Save-State
@@ -102,14 +105,27 @@ try{
             'SQL-only recovery onto a rebuilt SQL 2017 server requires a separately tested plan for logins/SIDs, certificates, server configuration and all dependent features. User database backups alone are not full-server rollback.'
         )
         $lines | Set-Content (Join-Path $WorkRoot 'RECOVERY.md') -Encoding UTF8
-        $lines | ForEach-Object {Write-Host $_}
+        Write-Host "Recovery summary saved: $WorkRoot\RECOVERY.md. Menu 6 displays the detailed text instructions."
+        Write-OperatorPlans
     }
     function Final-Readiness {
-        Assert-PreparationPhase
-        Run-Worker Preflight
-        Run-Worker Rehearse
-        Write-RecoveryPlan
-        Write-Host 'PASS: technical readiness and backup restore. Before clicking Upgrade, stop writers, use a fresh backup and confirm the external full-server recovery image is available. SQL backup alone is not full-server rollback.'
+        try {
+            Write-ReadinessReport 'CHECKING' 'Checks have not completed yet.'
+            Assert-PreparationPhase
+            Run-Worker Preflight
+            $p=Get-Content $planPath -Raw | ConvertFrom-Json
+            $b=Get-Content (Join-Path $WorkRoot 'backups.json') -Raw | ConvertFrom-Json
+            if($b.PlanId -ne $p.Id -or $b.Build -ne $p.SourceBuild){throw 'Backup set belongs to another plan/build.'}
+            if((@($b.Files.Database | Sort-Object) -join '|') -ne (@($p.Baseline.Databases.Name | Sort-Object) -join '|')){throw 'Backup database scope does not match the plan.'}
+            foreach($f in $b.Files){if((Get-FileHash -LiteralPath $f.Path).Hash -ne $f.Sha256){throw "Backup changed: $($f.Path)"}}
+            Run-Worker Rehearse
+            Write-RecoveryPlan
+            Write-ReadinessReport 'TECHNICAL CHECKS PASSED' 'Preflight, all backup file hashes and user-database restore/CHECKDB passed. External recovery and writer shutdown require operator confirmation.'
+        }catch{
+            $failure=$_
+            try{Write-ReadinessReport 'NOT READY' $failure.Exception.Message}catch{Write-Warning 'Unable to write readiness report.'}
+            throw $failure
+        }
     }
     function Get-LiveBuild {
         $server=if($InstanceName -eq 'MSSQLSERVER'){'lpc:.'}else{"lpc:.\$InstanceName"}
@@ -191,11 +207,14 @@ try{
             try{
                 switch($choice){
                     '1' {Invoke-VisibleAction 'Prepare' {Prepare-Local}}
-                    '2' {Invoke-VisibleAction 'Backups' {Assert-PreparationPhase;Run-Worker Backup}}
+                    '2' {Invoke-VisibleAction 'Backups' {
+                        try{Assert-PreparationPhase;Select-BackupFolder;Write-ReadinessReport 'NOT READY' 'New backup operation in progress.';Run-Worker Backup;Write-ReadinessReport 'BACKUPS COMPLETE; FINAL CHECK REQUIRED' 'Run menu 3 before Upgrade.'}
+                        catch{$failure=$_;try{Write-ReadinessReport 'NOT READY' $failure.Exception.Message}catch{};throw $failure}
+                    }}
                     '3' {Invoke-VisibleAction 'Final readiness check' {Final-Readiness}}
                     '4' {Invoke-VisibleAction 'Open SQL Setup Wizard' {Open-UpgradeWizard}}
                     '5' {Invoke-VisibleAction 'Verify' {Verify-Local}}
-                    '6' {Invoke-VisibleAction 'Rollback plan and scripts' {Write-RecoveryPlan;Write-Host "Saved: $(Join-Path $WorkRoot 'RECOVERY.md')"}}
+                    '6' {Invoke-VisibleAction 'Rollback plan and scripts' {Write-RecoveryPlan;Get-Content (Join-Path $WorkRoot 'ROLLBACK-PLAN.txt') | Out-Host}}
                     '0' {} default {Write-Host 'Unknown choice.'}
                 }
             }catch{Write-Warning $_.Exception.Message}

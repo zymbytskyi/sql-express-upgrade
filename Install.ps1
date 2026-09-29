@@ -1,9 +1,9 @@
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
 [CmdletBinding()]
-param([string]$Destination='C:\Tools\SqlExpressUpgrade-v0.3.0',[switch]$NoLaunch)
+param([string]$Destination='C:\Tools\SqlExpressUpgrade-v0.3.1',[switch]$NoLaunch)
 $ErrorActionPreference='Stop'
-$version='v0.3.0'
+$version='v0.3.1'
 if(Test-Path -LiteralPath $Destination){
     $menu=Join-Path $Destination 'Start-SqlExpressUpgradeMenu.ps1'
     if(-not(Test-Path $menu -PathType Leaf)){throw "Incomplete destination: $Destination. Choose a new directory."}

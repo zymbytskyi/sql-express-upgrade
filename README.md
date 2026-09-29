@@ -5,7 +5,7 @@ Run this package **on the Windows server that hosts SQL Express**, in elevated
 WinRM endpoint or separate credentials are needed for the normal workflow.
 All scripts, prompts and documentation are English.
 
-Release 0.3.0 adds visible results and a manual wizard. For migration from the host-oriented 0.1.0 menu, start a new local runtime
+Release 0.3.1 adds visible results and a manual wizard. For migration from the host-oriented 0.1.0 menu, start a new local runtime
 folder; do not reuse a host campaign.json. Existing 0.1.0 recovery images remain
 valuable and must not be deleted just because the package changed.
 
@@ -16,15 +16,15 @@ Open Windows PowerShell **as administrator inside the SQL server**:
 ```powershell
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion.Major -le 5) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 }
-$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.3.0.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.3.0/Install.ps1' -OutFile $installer -UseBasicParsing
+$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.3.1.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.3.1/Install.ps1' -OutFile $installer -UseBasicParsing
 Unblock-File -LiteralPath $installer
 Set-ExecutionPolicy -Scope Process RemoteSigned -Force
 & $installer
 ```
 
 The installer downloads the versioned release ZIP, verifies its GitHub-published
-SHA-256 digest, extracts into `C:\Tools\SqlExpressUpgrade-v0.3.0` and opens the
+SHA-256 digest, extracts into `C:\Tools\SqlExpressUpgrade-v0.3.1` and opens the
 local menu. It never starts a SQL upgrade on installation. Existing destination
 folders are not overwritten; rerunning this version opens its existing menu. No password or SQL authentication prompt is used:
 the signed-in Windows account must be local administrator and SQL sysadmin.
@@ -33,7 +33,7 @@ Reopen after signing in or after a restart:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process RemoteSigned -Force
-& C:\Tools\SqlExpressUpgrade-v0.3.0\Start-SqlExpressUpgradeMenu.ps1
+& C:\Tools\SqlExpressUpgrade-v0.3.1\Start-SqlExpressUpgradeMenu.ps1
 ```
 
 ## Detection and defaults
@@ -55,6 +55,33 @@ Set-ExecutionPolicy -Scope Process RemoteSigned -Force
   required service access, and copy recovery material off the server.
 - Plans bind to the local computer/instance; workflow state also binds to its
   Windows machine GUID. A mutex prevents concurrent sessions for one instance.
+
+## Operator documents and backup storage
+
+Menu 1 writes `UPGRADE-PLAN.txt`: preparation-day and upgrade-window steps, the
+actual server/instance, databases, media/backup paths and SQL Setup GUI actions.
+Menu 6 prints and saves `ROLLBACK-PLAN.txt`: what each generated script does,
+where to run it, GUI shutdown/start steps, example commands, expected results
+and the consequences of recovery. Open these plain-text files in Notepad.
+Both are in `C:\SqlExpressUpgradeData` (or your selected WorkRoot).
+
+Menu 2 lists fixed NTFS/ReFS disks and free GiB, recommends the eligible disk
+with the most free space and proposes a dedicated instance/campaign folder.
+Press Enter or type a full local folder path. The estimate uses live allocated
+SQL file sizes: 120% of total database size + largest database + 10 GiB reserve.
+It does not assume backup compression. Existing backups are not deleted.
+The chosen volume is rechecked, including paths on mounted volumes. The scan
+lists drive-letter volumes; mounted-only volumes can be supplied by full path.
+A new folder grants Modify to the selected SQL service SID only; existing folder
+ACLs are preserved. SQL BACKUP failure blocks successful completion if the service
+cannot write. Local staging backups still need a protected off-server copy.
+
+Menu 3 prints and saves `FINAL-READINESS.txt`: last complete backup set time/age,
+each database's actual file path/size/modified time, and technical PASS or NOT READY
+with a reason. All backup hashes and database scope must match before rehearsal.
+Backups over 24 hours old get a reminder to refresh; no age can prove that writers
+were stopped. Technical PASS is not external recovery or application acceptance.
+Do not change package/preparation during an active Setup session.
 
 ## Six-step menu
 
@@ -102,7 +129,7 @@ manually upgraded instance. The normal menu never requests a VM or remote host.
 
 Setup logs: `C:\Program Files\Microsoft SQL Server\160\Setup Bootstrap\Log`.
 Runtime: `C:\SqlExpressUpgradeData`. Keep the existing 0.2.0 plan/media/backups
-when installing 0.3.0 into its new package folder; do not repeat Configure.
+when installing 0.3.1 into its new package folder; do not repeat Configure.
 A failed Setup requires diagnosis or external recovery, not a blind retry.
 
 ## Rollback boundary
