@@ -1,5 +1,12 @@
 # Changelog
 
+## Documentation review - 2026-09-29 (v0.3.1 unchanged)
+
+- Added PRODUCTION-RUNBOOK.md: pinned installer, real-server preparation, GUI upgrade, explicit GO/NO-GO, external recovery, SQL servicing and application acceptance.
+- Closed the pending new-folder check with a live isolated lab test under Dex: actual SQL size/volume checks, new service-SID folder ACL, ExpressUpgradeDemo COPY_ONLY/CHECKSUM backup and VERIFYONLY passed. Current SQL is 2022 16.0.1000.6 after the user's upgrade; no new upgrade, reboot or VM restore was run.
+- Repeated safety/discovery, guidance and menu tests passed. A full v0.3.1 SQL 2017 production workflow, large datasets, mounted storage and independent export-import recovery remain unverified.
+- Executable release v0.3.1 and its pinned hashes remain unchanged. This runbook is maintained in the repository main branch; the existing release ZIP predates this documentation update.
+
 ## 0.3.1 - 2026-09-29
 
 - Generate UPGRADE-PLAN.txt and ROLLBACK-PLAN.txt with target-specific paths, step-by-step GUI/actions, script purpose/execution location and recovery acceptance.

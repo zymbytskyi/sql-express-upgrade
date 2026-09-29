@@ -1,5 +1,7 @@
 # SQL Express 2017 to 2022 — local upgrade toolkit
 
+Start with the [real-server runbook](PRODUCTION-RUNBOOK.md) before production rehearsal. It includes the pinned installer, GUI steps, GO/NO-GO criteria, servicing requirements and a dated evidence matrix. Preparation-only testing stops after menus 1/2/3/6.
+
 Run this package **on the Windows server that hosts SQL Express**, in elevated
 64-bit Windows PowerShell. No Hyper-V module, VM name, remote computer name,
 WinRM endpoint or separate credentials are needed for the normal workflow.
