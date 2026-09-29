@@ -15,6 +15,7 @@ function Get-Boot {$script:boot}
 function Get-Process {param($Name,$ErrorAction) $null}
 function Run-Worker {param($Action) $script:calls+=$Action}
 function Save-State {}
+function Final-Readiness {Run-Worker Preflight}
 function Start-Process {param($FilePath,$ArgumentList,[switch]$PassThru) $script:launchArgs=$ArgumentList;[pscustomobject]@{Id=123}}
 function Read-Host {param($Prompt) $script:pauses++;''}
 try {

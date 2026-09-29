@@ -74,13 +74,21 @@ try{
         if(-not$p.Prepared){Run-Worker Prepare}
         Run-Worker Preflight
         $script:state.Phase='Prepared';Save-State
-        Write-Host 'Preparation complete. Next: backup, restore rehearsal, and recovery planning.'
+        Write-RecoveryPlan
+        Write-Host 'Preparation complete. Next: 2 Backups, then 3 Final readiness check.'
     }
     function Write-RecoveryPlan {
         if(-not(Test-Path $planPath)){throw 'Run Prepare first.'}
         $p=Get-Content $planPath -Raw | ConvertFrom-Json
+        & (Join-Path $PSScriptRoot 'New-RecoveryKit.ps1') -WorkRoot $WorkRoot
         $lines=@(
             '# Recovery plan',
+            'This plan and its scripts do not create a recovery image automatically. Copy the entire Rollback folder and verified SQL backups outside this server.',
+            'BEFORE UPGRADE: stop application writers; run menu 2 and 3; copy artifacts off-server; gracefully shut down the VM for the host-side capture.',
+            'HYPER-V HOST: run Rollback\Capture-HyperV.ps1 -VMName <actual-host-VM-name> -RecoveryDirectory <new-host-recovery-directory>. It creates a cold checkpoint plus export and records recovery.json. Restart the VM, keeping writers stopped.',
+            'IF ROLLBACK IS APPROVED: preserve Setup logs and any later business data; gracefully shut down the VM. On its Hyper-V host run Rollback\Restore-HyperV.ps1 with the same VMName and RecoveryDirectory. Confirm the target and data loss. Start the VM.',
+            'AFTER RESTORE: inside the recovered server run Rollback\Verify-Rollback.ps1. It checks this computer, original SQL build, expected databases and CHECKDB. Then test application access/data and domain trust.',
+            'The host helper restores the recorded checkpoint; if that checkpoint is lost, use a separately rehearsed export-import or backup-provider recovery procedure. An export is not proof of a tested disaster recovery.',
             "Computer: $env:COMPUTERNAME; local instance: $InstanceName; original SQL build: $($p.SourceBuild).",
             "SQL backup directory: $($p.BackupDirectory). Copy verified pre-upgrade backups and this runtime directory to storage outside this server before downtime.",
             'Stop application writers before the final backup and keep them stopped until acceptance or rollback.',
@@ -95,6 +103,13 @@ try{
         )
         $lines | Set-Content (Join-Path $WorkRoot 'RECOVERY.md') -Encoding UTF8
         $lines | ForEach-Object {Write-Host $_}
+    }
+    function Final-Readiness {
+        Assert-PreparationPhase
+        Run-Worker Preflight
+        Run-Worker Rehearse
+        Write-RecoveryPlan
+        Write-Host 'PASS: technical readiness and backup restore. Before clicking Upgrade, stop writers, use a fresh backup and confirm the external full-server recovery image is available. SQL backup alone is not full-server rollback.'
     }
     function Get-LiveBuild {
         $server=if($InstanceName -eq 'MSSQLSERVER'){'lpc:.'}else{"lpc:.\$InstanceName"}
@@ -119,11 +134,11 @@ try{
         if([Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0){throw 'Open the menu in an interactive desktop/RDP PowerShell window on this SQL server to launch Setup Wizard.'}
         if((Get-LiveBuild) -notlike '14.*'){throw 'Wizard launch requires the original SQL 2017 instance. Use Verify if already upgraded.'}
         if(Get-Process -Name setup -ErrorAction SilentlyContinue){throw 'Setup is already open. Switch to the existing Setup window.'}
-        Run-Worker Preflight
+        Final-Readiness
         $instructions=@(
             '# Manual SQL Server 2022 upgrade',
             "Target: $env:COMPUTERNAME\$InstanceName. Upgrade this existing instance; do not create a new instance.",
-            'Before proceeding: stop application writers, take fresh backups (menu 3), test restore (menu 4), and verify full-server recovery (menu 5).',
+            'Before proceeding: stop application writers, take fresh backups (menu 2), pass final readiness (menu 3), and complete the external recovery preparation in menu 6.',
             '1. The launcher opens the interactive Upgrade workflow. If Installation Center appears instead: Installation > Upgrade from a previous version of SQL Server.',
             '2. Confirm SQL Server 2022 Express. Review and accept the license terms yourself.',
             '3. Keep Product Updates disabled for this prepared media. Review Global Rules and resolve every failure.',
@@ -131,8 +146,8 @@ try{
             '5. Review detected features, instance configuration and Upgrade Rules. Keep existing settings unless an approved change is required.',
             '6. Ready to Upgrade: verify the target and feature summary. Click Upgrade yourself.',
             '7. Wait for Complete. Confirm every feature succeeded. Save the Summary/Detail log locations and close Setup.',
-            '8. Restart Windows manually if requested; this runbook requires a restart before final acceptance. Menu 8 is an optional explicitly confirmed restart.',
-            '9. Sign in again, reopen this menu and choose 7 Verify. Test application reads/writes before reopening normal traffic.',
+            '8. Restart Windows manually if requested; this runbook requires a restart before final acceptance. Restart from Windows when ready; the menu does not restart this server.',
+            '9. Sign in again, reopen this menu and choose 5 Verify. Test application reads/writes before reopening normal traffic.',
             'If Setup fails, retain logs, investigate or restore the external pre-upgrade server image. Do not uninstall SQL or attempt an in-place downgrade.'
         )
         $instructionsPath=Join-Path $WorkRoot 'MANUAL-UPGRADE.md'
@@ -161,23 +176,26 @@ try{
         Start-Transcript -Path $transcript -Force | Out-Null
         $script:transcriptStarted=$true
         Write-Host "Session log: $transcript"
-        Write-Host 'Manual upgrade workflow: choose 7 after completing Setup and restarting Windows.'
+        Write-Host 'Manual upgrade workflow: choose 5 after completing Setup and restarting Windows.'
         do{
             Write-Host "`nLOCAL SQL Express 2017 -> 2022 | $env:COMPUTERNAME\$InstanceName"
             Write-Host "Phase: $($script:state.Phase) | Runtime: $WorkRoot"
-            Write-Host '1 Prepare (detect/download/configure) | 2 Preflight | 3 Backup | 4 Restore rehearsal'
-            Write-Host '5 Show recovery plan | 6 Open SQL Setup Wizard | 7 Verify after restart | 8 Restart (confirm) | 0 Exit'
+            Write-Host '1 Prepare - instance, plan, checks and media'
+            Write-Host '2 Backups - CHECKDB and verified SQL backups'
+            Write-Host '3 Final readiness check - preflight and test restore'
+            Write-Host '4 Upgrade - open SQL Setup Wizard'
+            Write-Host '5 Verify after upgrade and Windows restart'
+            Write-Host '6 Rollback plan and instance-specific scripts'
+            Write-Host '0 Exit'
             $choice=(Read-Host 'Choose').Trim()
             try{
                 switch($choice){
                     '1' {Invoke-VisibleAction 'Prepare' {Prepare-Local}}
-                    '2' {Invoke-VisibleAction 'Preflight' {Run-Worker Preflight}}
-                    '3' {Invoke-VisibleAction 'Backup' {Assert-PreparationPhase;Run-Worker Backup}}
-                    '4' {Invoke-VisibleAction 'Restore rehearsal' {Assert-PreparationPhase;Run-Worker Rehearse}}
-                    '5' {Invoke-VisibleAction 'Recovery plan' {Write-RecoveryPlan;Write-Host "Saved: $(Join-Path $WorkRoot 'RECOVERY.md')"}}
-                    '6' {Invoke-VisibleAction 'Open SQL Setup Wizard' {Open-UpgradeWizard}}
-                    '7' {Invoke-VisibleAction 'Verify' {Verify-Local}}
-                    '8' {Invoke-VisibleAction 'Restart' {if((Read-Host 'Type RESTART to restart this computer') -ceq 'RESTART'){Restart-Local}else{Write-Host 'Restart canceled.'}}}
+                    '2' {Invoke-VisibleAction 'Backups' {Assert-PreparationPhase;Run-Worker Backup}}
+                    '3' {Invoke-VisibleAction 'Final readiness check' {Final-Readiness}}
+                    '4' {Invoke-VisibleAction 'Open SQL Setup Wizard' {Open-UpgradeWizard}}
+                    '5' {Invoke-VisibleAction 'Verify' {Verify-Local}}
+                    '6' {Invoke-VisibleAction 'Rollback plan and scripts' {Write-RecoveryPlan;Write-Host "Saved: $(Join-Path $WorkRoot 'RECOVERY.md')"}}
                     '0' {} default {Write-Host 'Unknown choice.'}
                 }
             }catch{Write-Warning $_.Exception.Message}

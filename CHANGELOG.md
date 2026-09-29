@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-09-29
+
+- Simplified menu to Prepare, Backups, Final readiness check, Upgrade Wizard, Verify and Rollback plan.
+- Final readiness includes a real user-database restore rehearsal; wizard launch repeats it.
+- Generate per-instance recovery target metadata, host capture/restore wrappers with explicit identity/data-loss confirmation, and local original-build/database integrity verification.
+- Repeated installation opens the existing versioned menu. Existing preparation is retained.
+- Lab: preparation, fresh backups, final readiness and generated rollback verification passed on SQL 2017. SQL 2022 acceptance is rejected while still on 2017. Wizard launch is mocked; no new upgrade, VM restore or reboot performed.
+
 ## 0.2.1 - 2026-09-29
 
 - Display timestamped START/SUCCESS/FAILED, elapsed time, a result pause and per-session transcripts for menu actions; show media hash and restore progress.
