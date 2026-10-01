@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0-rc2 - 2026-10-01
+
+- Fix a real-lab CU failure: SQL Setup rejects NORESTART with 0x84b40003. Use the
+  supported selected-instance SQL update switches; keep Windows restart explicit.
+- Replace the incorrect mocked restart-switch expectation with a supported-argument
+  regression check. Preserve failed-install state and diagnostics.
+- Record real SQL 2017-to-2022 engine upgrade, CU27 installation, reboots, operator
+  menu/backups/CHECKDB/compatibility checks and independent Hyper-V export recovery.
+  See VALIDATION.md for evidence and remaining GUI/domain/application limits.
+- Publish a new versioned installer; previous packages, runtime and SQL 2017 backups
+  remain retained. Do not use rc1 for menu 8 servicing.
+
 ## 0.4.0-rc1 - 2026-10-01
 
 - Respond to production findings: SQL-language-aware signed media reuse/retry/fallback, numeric language and extracted x64 metadata validation; no language-renaming workaround.

@@ -13,7 +13,9 @@ function Convert-ServicingRows([string]$Html) {
 }
 function Get-PatchArguments([string]$TargetInstance) {
     if($TargetInstance -notmatch '^[A-Za-z][A-Za-z0-9_]{0,15}$'){throw 'Invalid patch instance.'}
-    @('/quiet','/action=patch',"/instancename=$TargetInstance",'/IAcceptSQLServerLicenseTerms','/norestart')
+    # SQL CU Setup rejects /norestart (0x84b40003); use SQL update switches only.
+    # Windows restart remains a separate operator-confirmed action below.
+    @('/quiet','/action=patch',"/instancename=$TargetInstance",'/IAcceptSQLServerLicenseTerms')
 }
 function Get-PatchResult([int]$Code) {
     switch($Code){0 {'Installed'} 3010 {'RestartRequired'} 1641 {'RestartInitiated'} default {throw "Patch failed: exit $Code. Review SQL Setup Bootstrap logs; do not repeat automatically."}}

@@ -2,7 +2,7 @@
 
 1. Finish any active SQL Setup. Close the old menu. Copy the protected runtime
    directory and original backup manifests off-server before changing tools.
-2. Install v0.4.0-rc1 into its new package directory; leave the v0.3.x package intact.
+2. Install v0.4.0-rc2 into its new package directory; leave older packages intact.
    Open it on the SAME server and instance with the existing WorkRoot. Schema-1 plan
    identity, source baseline and boot state remain supported; no campaign reset occurs.
 3. Existing plans/media remain. Preparation validates actual metadata; rejected or

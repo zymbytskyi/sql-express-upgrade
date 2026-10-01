@@ -70,7 +70,7 @@ try{
     Invoke-Verify
     Assert-Test ((Get-ApprovedCompatibility (Read-Plan) 'Demo space') -eq 160) 'approved intentional compatibility change passes subsequent Verify'
     $args=Get-PatchArguments APPDATA
-    Assert-Test ($args -contains '/instancename=APPDATA' -and -not($args -match 'AllInstances') -and $args -contains '/norestart') 'patch targets only selected instance with automatic restart suppressed'
+    Assert-Test (($args -join '|') -eq '/quiet|/action=patch|/instancename=APPDATA|/IAcceptSQLServerLicenseTerms') 'patch uses only supported SQL CU switches for the selected instance; no rejected NORESTART or AllInstances'
     Assert-Test ((Get-PatchResult 0) -eq 'Installed' -and (Get-PatchResult 3010) -eq 'RestartRequired' -and (Get-PatchResult 1641) -eq 'RestartInitiated') 'success/restart result handling'
     Must-Fail {Get-PatchResult 1603} 'installer failure not accepted as success'
     & {

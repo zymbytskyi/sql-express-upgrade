@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$OutputDirectory,[string]$Version='v0.4.0-rc1')
+param([Parameter(Mandatory)][string]$OutputDirectory,[string]$Version='v0.4.0-rc2')
 $ErrorActionPreference='Stop'
 $OutputDirectory=[IO.Path]::GetFullPath($OutputDirectory)
 if($OutputDirectory -eq $PSScriptRoot -or $OutputDirectory.StartsWith($PSScriptRoot+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Build outside the source package.'}

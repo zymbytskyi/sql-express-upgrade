@@ -1,8 +1,9 @@
-# Operator runbook - v0.4.0-rc1
+# Operator runbook - v0.4.0-rc2
 
-This is a release candidate validated with isolated orchestration tests. Do not treat
-mocked installer tests as a production patch/upgrade acceptance. Start on a restored
-non-production copy. See VALIDATION.md for evidence and remaining limits.
+This release candidate includes real lab engine-upgrade and servicing validation.
+The interactive Wizard path and production application acceptance remain separate
+checks. Start on a restored non-production copy. See VALIDATION.md for exact evidence
+and remaining limits; fixture tests alone do not prove installer compatibility.
 
 ## Preparation day
 
@@ -65,6 +66,8 @@ non-production copy. See VALIDATION.md for evidence and remaining limits.
 4. Confirm PATCH only after stopping writers and qualifying recovery. The package
    targets `/instancename=...`, never `/AllInstances`; shared components may change.
    Quiet installation shows elapsed time, process IDs and Setup log locations.
+   SQL CU Setup rejects `/norestart`; the package uses supported SQL update switches
+   and keeps its Windows restart request behind a separate confirmation.
 5. A failure retains state/logs. Success and restart-required exits are distinct.
    Restart only by explicit confirmation; later use menu 5 for post-restart verification.
    Installation is never automatically repeated on reopening the menu.
@@ -99,4 +102,5 @@ non-production copy. See VALIDATION.md for evidence and remaining limits.
 - [Microsoft supported SQL 2022 upgrade paths](https://learn.microsoft.com/en-us/sql/database-engine/install-windows/supported-version-and-edition-upgrades-2022?view=sql-server-ver16)
 - [SQL 2022 build and security release table](https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/build-versions)
 - [Microsoft SQL 2022 CU download](https://www.microsoft.com/en-us/download/details.aspx?id=105013)
+- [Microsoft SQL update command-line parameters](https://learn.microsoft.com/en-us/sql/database-engine/install-windows/installing-updates-from-the-command-prompt)
 - [Reused self-patch source](https://github.com/zymbytskyi/sql-server-2022-express-self-patch/tree/c528b6d1e17bf3621549ac73e3685fb7cd1b1062)

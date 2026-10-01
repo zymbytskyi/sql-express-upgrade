@@ -1,6 +1,6 @@
 # SQL Express 2017 to 2022: local upgrade and servicing
 
-**v0.4.0-rc1 is a release candidate.** Run on the SQL server in elevated 64-bit
+**v0.4.0-rc2 is a release candidate.** Run on the SQL server in elevated 64-bit
 Windows PowerShell 5.1. Test against a restored non-production copy before a new
 production campaign. [Runbook](PRODUCTION-RUNBOOK.md), [migration](MIGRATION.md),
 [test evidence and limits](VALIDATION.md).
@@ -10,8 +10,8 @@ production campaign. [Runbook](PRODUCTION-RUNBOOK.md), [migration](MIGRATION.md)
 ```powershell
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion.Major -le 5) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 }
-$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.4.0-rc1.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.4.0-rc1/Install.ps1' -OutFile $installer -UseBasicParsing
+$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.4.0-rc2.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.4.0-rc2/Install.ps1' -OutFile $installer -UseBasicParsing
 Unblock-File $installer
 Set-ExecutionPolicy -Scope Process RemoteSigned -Force
 & $installer
