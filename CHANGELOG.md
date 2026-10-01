@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0-rc1 - 2026-10-01
+
+- Respond to production findings: SQL-language-aware signed media reuse/retry/fallback, numeric language and extracted x64 metadata validation; no language-renaming workaround.
+- Separate backup prerequisites from upgrade restart gates. Show pending operations and likely source without clearing them.
+- Default COPY_ONLY/CHECKSUM + VERIFYONLY; full restore/CHECKDB is optional, explained and isolated. Cache mode/plan/instance/manifest/hash/config evidence; launcher never surprises operators with a repeated full rehearsal.
+- Add manual Setup command/current-stage output, fast post-upgrade verification and separate full CHECKDB.
+- Integrate pinned MIT-licensed self-patch helpers with live CU/security target review, selected-instance patching, optional backups, progress, explicit restart and durable post-restart verification.
+- Add explicit user-database compatibility 160 approval/revert records, migration approval for existing changes, manual-backup registration and completion summary.
+- Preserve SQL 2017 manifests/sets; recognizable safe filenames; no Express native compression; provider-neutral recovery including external Azure Backup references.
+- Add fixture suites and allowlisted release/integrity build. See VALIDATION.md for exact evidence and limits; no production upgrade, patch, restart or recovery executed for this release candidate.
+
 ## Documentation review - 2026-09-29 (v0.3.1 unchanged)
 
 - Added PRODUCTION-RUNBOOK.md: pinned installer, real-server preparation, GUI upgrade, explicit GO/NO-GO, external recovery, SQL servicing and application acceptance.

@@ -13,6 +13,7 @@ $p | ConvertTo-Json -Depth 10 | Set-Content $planPath
 $backupFile=Join-Path $backupFolder 'test.bak';'fixture' | Set-Content $backupFile
 $b=[ordered]@{PlanId='fixture';Build=$p.SourceBuild;CreatedUtc=[datetime]::UtcNow.AddHours(-30).ToString('o');Files=@(@{Database='Demo';Path=$backupFile;Sha256=(Get-FileHash $backupFile).Hash})}
 $b | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $WorkRoot 'backups.json')
+function Get-LiveBuild {'14.0.1000.169'}
 function Get-CimInstance {param($ClassName,$Filter)
     @([pscustomobject]@{DeviceID='C:';FreeSpace=5GB;FileSystem='NTFS'},[pscustomobject]@{DeviceID='D:';FreeSpace=100GB;FileSystem='NTFS'},[pscustomobject]@{DeviceID='E:';FreeSpace=50GB;FileSystem='ReFS'})
 }
@@ -26,25 +27,11 @@ try {
         if(-not$text.Contains('APPDATA') -or -not$text.Contains('14.0.1000.169')){throw "Target missing: $name"}
     }
     $r=Get-Content (Join-Path $WorkRoot 'ROLLBACK-PLAN.txt') -Raw
-    foreach($expected in @('Hyper-V Manager','Set-Location','Capture-HyperV.ps1','Restore-HyperV.ps1','Verify-Rollback.ps1','ALL later VM changes')){if(-not$r.Contains($expected)){throw "Recovery instruction missing: $expected"}}
+    foreach($expected in @('Hyper-V Manager','OPTIONAL','SQL 2022 backups cannot restore','loss of all changes','Azure')){if(-not$r.Contains($expected)){throw "Recovery instruction missing: $expected"}}
     Write-ReadinessReport 'CHECKING'
     $r=Get-Content (Join-Path $WorkRoot 'FINAL-READINESS.txt') -Raw
     if(-not$r.Contains('30 hours') -or -not$r.Contains($backupFile) -or -not$r.Contains('more than 24 hours')){throw 'Backup age/path warning missing'}
-    # Exercise final-readiness control flow without SQL or VM operations.
-    $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Start-SqlExpressUpgradeMenu.ps1'),[ref]$null,[ref]$null)
-    $node=$ast.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Final-Readiness'},$true)
-    . ([scriptblock]::Create($node.Extent.Text))
-    function Assert-PreparationPhase {}
-    function Run-Worker {param($Action) $script:actions+=,$Action}
-    function Write-RecoveryPlan {Write-OperatorPlans}
-    $script:actions=@()
-    Final-Readiness
-    if($script:actions -notcontains 'Rehearse'){throw 'Rehearsal not run'}
-    if((Get-Content (Join-Path $WorkRoot 'FINAL-READINESS.txt') -Raw) -notmatch 'TECHNICAL CHECKS PASSED'){throw 'Success report missing'}
-    'changed' | Set-Content $backupFile
-    $blocked=$false
-    try{Final-Readiness}catch{$blocked=$true}
-    if(-not$blocked -or (Get-Content (Join-Path $WorkRoot 'FINAL-READINESS.txt') -Raw) -notmatch 'NOT READY'){throw 'Changed backup was not blocked/reported'}
+    # Cache invalidation and checksum control flow are tested in Test-ProductionFindings.ps1.
     Remove-Item -LiteralPath $backupFile
     Write-ReadinessReport 'NOT READY' 'Fixture missing backup'
     if((Get-Content (Join-Path $WorkRoot 'FINAL-READINESS.txt') -Raw) -notmatch 'MISSING: Demo'){throw 'Missing file not reported'}
@@ -61,7 +48,7 @@ try {
     $script:free=1GB;$blocked=$false
     try{Select-BackupFolder}catch{$blocked=$true}
     if(-not$blocked){throw 'Insufficient custom volume accepted'}
-    'PASS: capacity ranking/rejection, target-specific GUI runbooks, backup age/paths, readiness success/failure, tampered backup rejection and custom folder choice. SQL and volume capacity were mocked; no VM touched.'
+    'PASS: capacity ranking/rejection, target-specific GUI runbooks, backup age/paths, missing backup reporting and custom folder choice. SQL and volume capacity were mocked; no VM touched.'
 } finally {
     # Remove only files created in this unique fixture directory, then empty directories.
     $root=if(Get-Variable originalRoot -ErrorAction SilentlyContinue){$originalRoot}else{$WorkRoot}

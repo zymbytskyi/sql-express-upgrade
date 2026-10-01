@@ -1,153 +1,102 @@
-# SQL Express 2017 to 2022: real-server rehearsal
+# Operator runbook - v0.4.0-rc1
 
-Reviewed 2026-09-29. Package: **v0.3.1**. This document supplements the generated
-instance-specific text plans. It does not certify an unseen production server.
+This is a release candidate validated with isolated orchestration tests. Do not treat
+mocked installer tests as a production patch/upgrade acceptance. Start on a restored
+non-production copy. See VALIDATION.md for evidence and remaining limits.
 
-## What is verified
+## Preparation day
 
-| Check | Evidence and limit |
-| --- | --- |
-| Local discovery / safety guards | 13 source safety assertions and 8 selection cases passed, including default/custom named instances and ambiguous selection. |
-| SQL upgrade path in the lab | Earlier lab testing covered SQL 2017 Express 14.0.1000.169 to SQL 2022 16.0.1000.6, reboot, checks and checkpoint recovery. This is not a test of your production application. |
-| Current lab state | Read-only check on 2026-09-29 found SQL 2022 16.0.1000.6, no running setup process and the demo database ONLINE after the user's manual upgrade. This alone is not full application acceptance. |
-| New backup folder | Live v0.3.1 function test under the lab operator account: SQL size estimate, real volume capacity, new folder and SQL service SID ACL, demo COPY_ONLY/CHECKSUM backup and VERIFYONLY passed. Test used the now-upgraded SQL 2022 instance; the complete v0.3.1 workflow was not rerun on SQL 2017. |
-| Guidance and failures | Isolated tests passed for free-space ranking, insufficient capacity, custom folder, backup age, missing/changed files, readiness results and generated documents. |
-| Wizard launcher | Arguments and guards tested with a mocked launcher; user reported that the real wizard opened and ran. No automated GUI acceptance claim. |
-| Remaining site-specific work | Actual server OS/features, application/vendor support, large backup timing, mounted-volume/storage layout, external recovery and final CU/security servicing require confirmation. Independent export-import disaster recovery is not certified by these tests. |
+1. Connect to the SQL server using Remote Desktop (`mstsc`) or your verified VM console.
+   Sign in with authorized local administrator and SQL sysadmin rights. Open 64-bit
+   Windows PowerShell 5.1 as Administrator and use the README installer block.
+2. Confirm the displayed computer and selected instance. Menu 1 creates the plan,
+   validates SQL-source language, prepares signed media and writes UPGRADE-PLAN.txt.
+   German Windows with English SQL is supported. Non-English SQL sources are not qualified.
+3. Read the pending restart details. Edge file renames are shown with a likely-source
+   label; they are never cleared. You can still use menu 2 for backups, but plan a
+   restart before upgrade. Microsoft Setup reboot rules remain in force.
+4. Menu 2 lists storage and proposes a dedicated folder. Override with a full local
+   path if required. Review physical storage/I/O policy; most free space does not mean
+   an independent backup. COPY_ONLY/CHECKSUM + VERIFYONLY runs without compression,
+   scratch restore or CHECKDB. Every new backup set is retained.
+5. Menu 3 runs current upgrade checks and reuses matching expensive verification.
+   Open FINAL-READINESS.txt and inspect backup age/files and verification mode.
+   Choose menu 7 only if you want a full user-database restore rehearsal. It explains
+   disk allocation and workload before confirmation. Menu 9 is optional full CHECKDB.
+6. Menu 11 records external recovery provider/reference/procedure. Menu 6 prints and
+   saves ROLLBACK-PLAN.txt. Copy the whole protected runtime and SQL backups off-server.
+   Use the actual provider's tested VM recovery procedure, including Azure Backup if
+   applicable. Hyper-V helpers are optional and run only on the Hyper-V HOST.
+7. For preparation-only testing, exit here. Capture timing/capacity and application
+   compatibility findings before approving downtime.
 
-## Before connecting
+## Upgrade window
 
-Record the real server, owner, maintenance window, rollback decision deadline,
-application stop/start procedure and person who can operate the VM backup console.
-Confirm application/vendor support for SQL 2022 and the client drivers in use.
-This package targets local English x64 standalone Express Database Engine.
-HA/clustered, encrypted/replicated/snapshot databases and additional SQL features
-need separate review. Do not use a passing generic menu as proof of feature support.
+1. Confirm application/vendor SQL 2022 support, the maintenance owner, stop/start steps,
+   rollback deadline, approved servicing target and a tested full-server recovery point.
+2. Stop application writers using the agreed procedure; this package does not guess
+   or stop application services. Take final backups, copy them off-server and keep
+   writers stopped through acceptance. Old backup age alone cannot prove completeness.
+3. Resolve pending restart; rerun menu 3. Menu 4 displays the exact setup.exe path and
+   a copyable interactive command. Its current checks reuse cached expensive evidence.
+   An existing Setup session blocks another launch. Invalid evidence requests menu 3.
+4. In the wizard, select Installation > Upgrade from a previous version when needed.
+   Select the EXISTING intended instance, review rules/features and Ready to Upgrade,
+   then click Upgrade yourself. Save Summary/Detail logs at Complete.
+5. Manual fallback runs Microsoft's Setup checks, not the package's backup/recovery
+   evidence checks. Complete menu 3 before using it. `/UPDATEENABLED=False` is explicit:
+   base Setup does not service itself. Microsoft Update checkbox controls future scans,
+   whereas Include SQL Server product updates controls the current Setup operation.
+6. Close Setup, restart Windows, reopen the same package/runtime and run menu 5. This
+   quick check does not run CHECKDB and does not mark RTM as fully serviced.
 
-The real server must have a supported OS, enough capacity and no pending restart.
-Microsoft supports the [2017 Express to 2022 Express upgrade path](https://learn.microsoft.com/en-us/sql/database-engine/install-windows/supported-version-and-edition-upgrades-2022?view=sql-server-ver16).
-Check its [hardware and OS requirements](https://learn.microsoft.com/en-us/sql/sql-server/install/hardware-and-software-requirements-for-installing-sql-server-2022?view=sql-server-ver16)
-against the actual server before downtime. SQL Setup rules are an additional gate.
+## Servicing and acceptance
 
-## 1. Connect and install
+1. Menu 8 shows installed build, latest Microsoft CU and security release rows, plus
+   an explicit recommended CU-branch build/KB/source. Review vendor compatibility and
+   approve the target. If it is already installed, no installer is rerun; choose 5.
+2. Review MSDB backup history. Choose 0 no new backups, 1 system databases, or 2 system
+   and user databases except tempdb. New SQL 2022 backups never replace the SQL 2017
+   recovery set. Use a dedicated post-upgrade folder if required.
+3. The latest CU downloads from Microsoft. If the current target is a newer security
+   package, supply its exact official x64 EXE URL from that KB. Signature and expected
+   build are checked. Paste Microsoft's published SHA256 when available. Read the
+   displayed local hash; it alone is not publisher validation.
+4. Confirm PATCH only after stopping writers and qualifying recovery. The package
+   targets `/instancename=...`, never `/AllInstances`; shared components may change.
+   Quiet installation shows elapsed time, process IDs and Setup log locations.
+5. A failure retains state/logs. Success and restart-required exits are distinct.
+   Restart only by explicit confirmation; later use menu 5 for post-restart verification.
+   Installation is never automatically repeated on reopening the menu.
+6. Optionally use menu 12 for selected USER database compatibility 160 only after
+   patching/required restart/technical verification. Confirm application/vendor support.
+   Retain old/new levels and copyable revert commands. No system database is altered.
+7. The application owner must test login, representative data, reads/writes, integrations
+   and performance. Quick SQL verification is not application acceptance. Menu 13 writes
+   a completion summary; retain it internally with Setup logs and recovery references.
 
-1. Open Remote Desktop Connection (`mstsc`) and connect to the actual SQL server,
-   or use Hyper-V Manager > select the verified VM > Connect.
-2. Sign in with an authorized Windows account that is local administrator and
-   SQL sysadmin for the selected instance. Do not enter credentials into scripts.
-3. Start > Windows PowerShell > right-click > Run as administrator. Use 64-bit
-   Windows PowerShell 5.1. Run the entire pinned block:
+## Recovery and troubleshooting
 
-```powershell
-$ErrorActionPreference = 'Stop'
-if ($PSVersionTable.PSVersion.Major -le 5) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 }
-$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.3.1.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.3.1/Install.ps1' -OutFile $installer -UseBasicParsing
-$expected = '8F1AA46B9F1C616B41AB46C293A69EDDB9796D382767623A4D947689F1B83187'
-if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne $expected) {
-    throw 'Installer integrity check failed.'
-}
-Unblock-File $installer
-Set-ExecutionPolicy -Scope Process RemoteSigned -Force
-& $installer
-```
+- Pending reboot: inspect the displayed CBS/Windows Update/file-operation entries;
+  restart during the approved window and recheck. Do not delete registry entries.
+- Language/media error: read expected vs detected metadata, rerun Prepare. Wrong files
+  remain in unique rejected/download folders; never rename a German package to ENU.
+- Backup access/capacity error: select an approved dedicated local folder. New folders
+  grant the SQL service SID Modify only there; existing folder ACLs stay unchanged.
+  Do not grant Everyone or alter drive-root ACLs. No scratch reserve is needed for VERIFYONLY.
+- Changed validation input: menu 4 explains invalidation and stops; use menu 3 to validate.
+- Failed scratch restore: retain its uniquely named UpgradeRehearsal database/files,
+  inspect errors and drop only that owned test database after diagnosis.
+- Failed Setup/patch: retain logs, keep writers stopped and decide recovery before the
+  agreed deadline. The external provider restores the full VM; all later changes are
+  lost. Preserve later business writes before approving that loss.
+- SQL 2022 backups cannot restore onto SQL 2017; keep original pre-upgrade backups.
+  There is no in-place downgrade. After external recovery verify original build,
+  database integrity, logins, representative data and domain trust before traffic.
 
-The installer verifies the release ZIP digest and opens the menu. Repeating this
-version's installer opens its installed menu. Do not paste the old v0.2.0 block.
-Confirm the displayed computer and instance before continuing. With multiple
-eligible instances, choose explicitly. Never copy the lab's runtime/plan to production.
+## References
 
-## 2. Preparation and rehearsal: menus 1, 2, 3 and 6
-
-1. **1 Prepare** downloads/extracts media and creates a plan for this server.
-   Open `C:\SqlExpressUpgradeData\UPGRADE-PLAN.txt` in Notepad. Resolve every error.
-   If a plan was created but default backup storage fails preflight, choose a
-   suitable location with menu 2, then rerun preparation/checks as indicated.
-2. **2 Backups** shows free GiB and a folder recommendation. Enter accepts it;
-   alternatively type a full local folder, such as `E:\SqlUpgradeBackups\Campaign01`.
-   The estimate includes 120% of allocated SQL files, the largest scratch restore
-   and 10 GiB reserve. Check actual storage policy: the most free space does not
-   prove a different physical disk, acceptable I/O performance or an independent backup.
-   New folders receive selected SQL service SID permissions. Existing folders keep
-   their ACLs. On access denied, have the administrator grant that SQL service
-   Modify on the dedicated folder; do not grant Everyone or change drive-root ACLs.
-3. Wait for all backups and VERIFYONLY to finish. CHECKDB, hashing, backup and
-   restore rehearsal consume disk space and I/O. Schedule these checks accordingly;
-   this is not a zero-impact production inventory. No compression benefit is assumed.
-4. **3 Final readiness check** validates the source/media and every recorded backup
-   hash, then actually restores user databases to unique scratch databases and runs
-   CHECKDB. Successfully tested scratch databases are removed; failed restores are
-   retained for diagnosis. Do not delete arbitrary databases to clear space.
-5. Read `FINAL-READINESS.txt`: completion time/age, paths/sizes and technical result.
-   Older backups can restore correctly while missing later writes. Age over 24 hours
-   gets a warning, but even a one-minute-old backup is not a final backup if writes continue.
-6. **6 Rollback plan** displays `ROLLBACK-PLAN.txt` and generates the `Rollback`
-   folder. Read the guest/host instructions and copy the entire kit, runtime and
-   verified SQL backups to protected off-server storage.
-
-If this is only tomorrow's preparation test, **stop here with 0 Exit**.
-Nothing requires opening the Upgrade wizard during preparation.
-
-## 3. GO / NO-GO before menu 4
-
-Proceed only when all are true:
-
-- The target computer, selected instance and application maintenance window are correct.
-- Application writers are stopped using the approved procedure; take fresh menu 2
-  backups and rerun menu 3. Keep writers stopped through acceptance or rollback.
-- Technical checks passed without ignored errors. Backup artifacts are copied off-server.
-- Full-server recovery has a recorded ID, known storage location, operator and tested
-  restoration procedure. The generated scripts/document alone are not a recovery image.
-- Application validation and the rollback deadline are agreed. Preserve any later
-  business writes before deciding to restore the pre-upgrade VM image.
-- The final SQL 2022 servicing level and its application/driver compatibility are approved.
-
-For the supplied Hyper-V helper, gracefully shut down the VM, perform host-side
-Capture from the generated plan, then start it with writers still stopped.
-The helper requires no pre-existing checkpoints and full export space plus 64 GiB
-host headroom. It restores the recorded checkpoint; loss of that checkpoint needs
-a separately tested export-import or backup-provider procedure.
-
-## 4. Upgrade, service and validate
-
-1. **4 Upgrade** repeats technical checks and opens SQL Setup. If Installation Center
-   appears: Installation > Upgrade from a previous version of SQL Server.
-2. Review license/rules, select the existing instance shown in the generated plan,
-   and review Ready to Upgrade. Click Upgrade yourself. Do not choose New installation.
-3. At Complete, confirm every feature succeeded. Retain Summary/Detail logs under
-   `C:\Program Files\Microsoft SQL Server\160\Setup Bootstrap\Log`. On any failure,
-   keep writers stopped and diagnose or follow the agreed recovery decision.
-4. Close Setup and restart Windows. Sign in, reopen elevated PowerShell, then:
-
-```powershell
-Set-ExecutionPolicy -Scope Process RemoteSigned -Force
-& 'C:\Tools\SqlExpressUpgrade-v0.3.1\Start-SqlExpressUpgradeMenu.ps1'
-```
-
-5. Choose **5 Verify**. Require success, then test application logins, representative
-   reads/writes, integrations and performance. Do not change database compatibility
-   levels as an unplanned part of this upgrade.
-6. The prepared media is **SQL 2022 RTM 16.0.1000.6**. Menu 5 can pass on RTM; it does
-   not enforce CU/security compliance. Before reopening production, apply the
-   application-approved current servicing package using its separate tested procedure,
-   reboot as required and repeat verification/application tests. See Microsoft's
-   [current SQL 2022 build table](https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/build-versions).
-   As checked on 2026-09-29 it lists CU27, 16.0.4295.3; this package does not install it.
-7. Reopen traffic only after application and infrastructure owners accept the result.
-   Retain pre-upgrade recovery artifacts through the agreed retention period.
-
-## If something fails
-
-- `Destination exists` naming v0.2.0: an old installer was used. Use the pinned block above.
-- Low space or permission failure: stop, choose an approved larger/writable folder and
-  retry menu 2; never remove retained recovery artifacts merely to pass a check.
-- Media/hash/source mismatch: stop and investigate. Do not edit JSON/hashes to bypass it.
-- Setup error or application failure: retain logs, keep writers stopped and use
-  `ROLLBACK-PLAN.txt`. Host-side restore discards all VM changes since capture.
-- After rollback: run the generated `Verify-Rollback.ps1` inside the recovered server,
-  then validate application data/logins and domain trust. SQL 2022 backups cannot
-  be used to restore SQL 2017; no in-place downgrade is performed.
-
-Send the operator the package version, generated text plans, latest readiness report,
-menu transcript and Setup summary through approved internal channels. Do not upload
-production plans, database names, backups, credentials or logs to the public repository.
+- [Microsoft supported SQL 2022 upgrade paths](https://learn.microsoft.com/en-us/sql/database-engine/install-windows/supported-version-and-edition-upgrades-2022?view=sql-server-ver16)
+- [SQL 2022 build and security release table](https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/build-versions)
+- [Microsoft SQL 2022 CU download](https://www.microsoft.com/en-us/download/details.aspx?id=105013)
+- [Reused self-patch source](https://github.com/zymbytskyi/sql-server-2022-express-self-patch/tree/c528b6d1e17bf3621549ac73e3685fb7cd1b1062)

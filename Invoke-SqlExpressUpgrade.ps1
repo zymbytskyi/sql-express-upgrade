@@ -9,12 +9,14 @@ belong outside the downloaded source tree. Windows authentication only.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Menu','Configure','Prepare','Preflight','Backup','Rehearse','Verify')]
+    [ValidateSet('Menu','Configure','Prepare','Preflight','Backup','Rehearse','Verify','ValidateBackups','ReuseValidation','CheckDB','Library')]
     [string]$Mode = 'Menu',
     [string]$WorkRoot = 'C:\SqlExpressUpgradeData',
     [ValidatePattern('^[A-Za-z][A-Za-z0-9_]{0,15}$')][string]$InstanceName = 'SQLEXPRESS',
     [string]$MediaPath,
-    [string]$BackupDirectory
+    [string]$BackupDirectory,
+    [ValidateSet('VerifyOnly','FullRestore')][string]$ValidationMode='VerifyOnly',
+    [ValidateSet('All','System')][string]$BackupScope='All'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -41,12 +43,21 @@ function Invoke-Query([string]$Instance, [string]$Sql) {
     $server = if ($Instance -eq 'MSSQLSERVER') { 'lpc:.' } else { "lpc:.\$Instance" }
     $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
     $builder['Data Source']=$server; $builder['Initial Catalog']='master'; $builder['Integrated Security']=$true; $builder['Connect Timeout']=15
+    $builder['Asynchronous Processing']=$true
     $connection = New-Object System.Data.SqlClient.SqlConnection $builder.ConnectionString
     try {
         $connection.Open()
         $command=$connection.CreateCommand(); $command.CommandText=$Sql; $command.CommandTimeout=1800
         $table=New-Object System.Data.DataTable
-        $reader=$command.ExecuteReader()
+        $timer=[Diagnostics.Stopwatch]::StartNew()
+        $pending=$command.BeginExecuteReader()
+        $last=-1
+        while(-not$pending.IsCompleted){
+            Start-Sleep -Milliseconds 500
+            $seconds=[int]$timer.Elapsed.TotalSeconds
+            if($seconds -ge $last+10){Write-Host "SQL operation in progress on $Instance | elapsed $($timer.Elapsed.ToString('hh\:mm\:ss'))";$last=$seconds}
+        }
+        $reader=$command.EndExecuteReader($pending)
         try { $table.Load($reader) } finally { $reader.Dispose() }
         foreach ($row in $table.Rows) {
             $record=[ordered]@{}
@@ -95,13 +106,7 @@ function Assert-Inventory($Inventory,[int]$Major=14) {
         if ($db.Name -notin @('master','model','msdb') -and $db.DataBytes -ge 10GB) { throw "Express database has no headroom below 10 GiB: $($db.Name)." }
     }
 }
-function Assert-NoReboot {
-    foreach ($key in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending','HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired')) {
-        if(Test-Path $key){throw "Pending Windows restart: $key"}
-    }
-    $rename=Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue
-    if ($rename -and $rename.PendingFileRenameOperations) { throw 'Pending file rename operations; restart and recheck.' }
-}
+
 function Assert-Disk([string]$Directory,[long]$Required) {
     if ($Directory -notmatch '^[A-Za-z]:\\') { throw "Only local drive paths are supported: $Directory" }
     $volume=Get-Volume -FilePath $Directory -ErrorAction Stop
@@ -126,25 +131,7 @@ function Invoke-Configure {
     Save-Json $planPath ([ordered]@{Schema=1;Id=[guid]::NewGuid().ToString();Computer=$env:COMPUTERNAME;Instance=$InstanceName;InstanceId=$instanceId;SourceBuild=$inventory.Server.Build;CreatedUtc=[datetime]::UtcNow.ToString('o');MediaSource=[IO.Path]::GetFullPath($MediaPath);BackupDirectory=[IO.Path]::GetFullPath($BackupDirectory);Baseline=$inventory;Prepared=$false;MediaFiles=@()})
     Write-Host "Saved plan: $planPath"
 }
-function Invoke-Prepare {
-    $p=Read-Plan
-    Assert-Inventory (Get-Inventory $p.Instance)
-    Assert-MicrosoftFile $p.MediaSource
-    if ((Get-Item $p.MediaSource).VersionInfo.ProductMajorPart -ne 16) { throw 'Media must be SQL 2022 (16.x), not an evergreen bootstrapper or SQL 2025.' }
-    Assert-Disk $WorkRoot 8GB
-    $media=Join-Path $WorkRoot 'Media2022'
-    if (Test-Path $media) { throw 'Media directory already exists. Run Preflight to validate it; use a new campaign to replace media.' }
-    New-Item -ItemType Directory -Path $media | Out-Null
-    $process=Start-Process $p.MediaSource -ArgumentList @('/q',('/x:"{0}"' -f $media)) -WindowStyle Hidden -PassThru -Wait
-    if ($process.ExitCode -ne 0) { throw "Extraction failed: $($process.ExitCode)" }
-    $setup=Join-Path $media 'setup.exe'
-    Assert-MicrosoftFile $setup
-    if ((Get-Item $setup).VersionInfo.ProductMajorPart -ne 16) { throw 'Extracted setup is not SQL 2022.' }
-    $p.MediaFiles=@(Get-ChildItem $media -File -Recurse | ForEach-Object { [pscustomobject]@{Path=$_.FullName.Substring($media.Length+1);Sha256=(Get-FileHash $_.FullName).Hash} })
-    $p.Prepared=$true
-    Save-Json $planPath $p
-    Write-Host "Prepared $($p.MediaFiles.Count) media files for offline use."
-}
+
 function Invoke-Preflight {
     $p=Read-Plan
     if (-not [Environment]::Is64BitProcess) { throw 'Run 64-bit Windows PowerShell.' }
@@ -184,80 +171,16 @@ function Invoke-Preflight {
     Save-Json (Join-Path $WorkRoot 'preflight.json') ([ordered]@{PlanId=$p.Id;CheckedUtc=[datetime]::UtcNow.ToString('o');Result='Passed';Inventory=$inventory})
     Write-Host 'PASS: live source, database scope, media, restart state and volume capacity.'
 }
-function Invoke-Backup {
-    Invoke-Preflight
-    $p=Read-Plan
-    $inventory=Get-Inventory $p.Instance
-    $stamp=[datetime]::UtcNow.ToString('yyyyMMddTHHmmssfff')
-    $records=@()
-    foreach ($db in $inventory.Databases) {
-        $name=Quote-Name $db.Name
-        $integrity=@(Invoke-Query $p.Instance "DBCC CHECKDB ($name) WITH NO_INFOMSGS, ALL_ERRORMSGS;")
-        if ($integrity.Count) { throw "CHECKDB reported errors: $($db.Name)" }
-        $path=Join-Path $p.BackupDirectory ("Upgrade-$stamp-$([guid]::NewGuid().ToString('N')).bak")
-        $literal=Quote-Sql $path
-        Invoke-Query $p.Instance "BACKUP DATABASE $name TO DISK=$literal WITH COPY_ONLY,CHECKSUM; RESTORE VERIFYONLY FROM DISK=$literal WITH CHECKSUM;" | Out-Null
-        $records+=[pscustomobject]@{Database=$db.Name;Path=$path;Sha256=(Get-FileHash -LiteralPath $path).Hash;Compatibility=$db.Compatibility}
-        Write-Host "Backed up and verified: $($db.Name)"
-    }
-    Save-Json $backupPath ([ordered]@{PlanId=$p.Id;Build=$inventory.Server.Build;CreatedUtc=[datetime]::UtcNow.ToString('o');Files=$records})
-    # A new backup set always invalidates older restore-rehearsal evidence.
-    Save-Json $rehearsalPath ([ordered]@{PlanId=$p.Id;Result='Required';BackupSha256=(Get-FileHash $backupPath).Hash})
-}
-function Invoke-Rehearse {
-    $p=Read-Plan
-    Assert-Inventory (Get-Inventory $p.Instance)
-    $backups=Get-Content $backupPath -Raw | ConvertFrom-Json
-    if ($backups.PlanId -ne $p.Id -or $backups.Build -ne $p.SourceBuild) { throw 'Backups do not match this plan.' }
-    $restoreRoot=Join-Path $p.BackupDirectory ('Rehearsal-'+[guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $restoreRoot | Out-Null
-    Write-Host 'Starting actual backup restore and CHECKDB rehearsal. This can take several minutes.'
-    foreach ($backup in @($backups.Files | Where-Object Database -NotIn @('master','model','msdb'))) {
-        if ((Get-FileHash $backup.Path).Hash -ne $backup.Sha256) { throw "Backup changed: $($backup.Path)" }
-        Write-Host "Restoring backup for $($backup.Database)..."
-        $literal=Quote-Sql $backup.Path
-        $files=@(Invoke-Query $p.Instance "RESTORE FILELISTONLY FROM DISK=$literal;")
-        if (@($files | Where-Object Type -NotIn @('D','L')).Count) { throw 'Only ordinary data/log database files are supported by rehearsal.' }
-        Assert-Disk $restoreRoot ([long](($files | Measure-Object Size -Sum).Sum)+2GB)
-        $scratch='UpgradeRehearsal_'+[guid]::NewGuid().ToString('N')
-        $moves=@($files | ForEach-Object { 'MOVE '+(Quote-Sql $_.LogicalName)+' TO '+(Quote-Sql (Join-Path $restoreRoot ($scratch+'_'+$_.FileId+'.dat'))) })
-        $name=Quote-Name $scratch
-        Invoke-Query $p.Instance ("RESTORE DATABASE $name FROM DISK=$literal WITH CHECKSUM,RECOVERY,"+($moves -join ',')+';') | Out-Null
-        $integrity=@(Invoke-Query $p.Instance "DBCC CHECKDB ($name) WITH NO_INFOMSGS,ALL_ERRORMSGS;")
-        if ($integrity.Count) { throw "Restored CHECKDB failed; retain $scratch for investigation." }
-        # Only the unique database created by this invocation is dropped.
-        Invoke-Query $p.Instance "DROP DATABASE $name;" | Out-Null
-        Write-Host "Restore + CHECKDB passed: $($backup.Database)"
-    }
-    Save-Json $rehearsalPath ([ordered]@{PlanId=$p.Id;Result='Passed';CheckedUtc=[datetime]::UtcNow.ToString('o');BackupSha256=(Get-FileHash $backupPath).Hash})
-}
-function Invoke-Verify {
-    $p=Read-Plan
-    Assert-NoReboot
-    $ready=0
-    for ($attempt=0;$attempt -lt 60 -and $ready -lt 2;$attempt++) {
-        try { Assert-Inventory (Get-Inventory $p.Instance) 16; $ready++ }
-        catch { $ready=0; if($attempt -eq 59){throw} }
-        if($ready -lt 2){Start-Sleep 5}
-    }
-    $inventory=Get-Inventory $p.Instance
-    Assert-Inventory $inventory 16
-    foreach($baseline in $p.Baseline.Databases) {
-        $actual=@($inventory.Databases | Where-Object Name -EQ $baseline.Name)
-        if ($actual.Count -ne 1) { throw "Missing database: $($baseline.Name)" }
-        if ($baseline.Name -notin @('master','model','msdb')) {
-            if ($actual[0].Compatibility -ne $baseline.Compatibility) { throw "Compatibility changed: $($baseline.Name)" }
-            $integrity=@(Invoke-Query $p.Instance ('DBCC CHECKDB ('+(Quote-Name $baseline.Name)+') WITH NO_INFOMSGS,ALL_ERRORMSGS;'))
-            if($integrity.Count){throw "CHECKDB failed: $($baseline.Name)"}
-        }
-    }
-    Save-Json (Join-Path $WorkRoot 'verification.json') ([ordered]@{PlanId=$p.Id;CheckedUtc=[datetime]::UtcNow.ToString('o');Result='DatabaseChecksPassed';Inventory=$inventory;ApplicationAcceptance='Required'})
-    Write-Host 'SQL 2022 database checks passed. Application acceptance is still required.'
-}
+
+
+
+. (Join-Path $PSScriptRoot 'WorkflowSupport.ps1')
+. (Join-Path $PSScriptRoot 'WorkflowOperations.ps1')
+. (Join-Path $PSScriptRoot 'MediaSupport.ps1')
 if ($Mode -eq 'Menu') {
     do {
         Write-Host "`nSQL Express 2017 -> 2022 preparation | $WorkRoot"
-        Write-Host '1 Configure | 2 Prepare local media | 3 Preflight | 4 Backup + CHECKDB | 5 Restore rehearsal | 6 Verify after upgrade | 0 Exit'
+        Write-Host '1 Configure | 2 Prepare local media | 3 Preflight | 4 Backup + VERIFYONLY | 5 Restore rehearsal | 6 Quick verify after upgrade | 0 Exit'
         $choice=Read-Host 'Choose'
         try {
             switch($choice) {
@@ -271,5 +194,7 @@ if ($Mode -eq 'Menu') {
     switch($Mode) {
         Configure {Invoke-Configure} Prepare {Invoke-Prepare} Preflight {Invoke-Preflight}
         Backup {Invoke-Backup} Rehearse {Invoke-Rehearse} Verify {Invoke-Verify}
+        ValidateBackups {Invoke-ValidateBackups} ReuseValidation {Invoke-ValidateBackups -ReuseOnly}
+        CheckDB {Invoke-FullCheckDB}
     }
 }
