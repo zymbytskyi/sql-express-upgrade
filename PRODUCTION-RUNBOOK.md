@@ -1,4 +1,4 @@
-# Operator runbook - v0.4.0-rc2
+# Operator runbook - v0.5.0-rc1
 
 This release candidate includes real lab engine-upgrade and servicing validation.
 The interactive Wizard path and production application acceptance remain separate
@@ -12,6 +12,8 @@ and remaining limits; fixture tests alone do not prove installer compatibility.
    Windows PowerShell 5.1 as Administrator and use the README installer block.
 2. Confirm the displayed computer and selected instance. Menu 1 creates the plan,
    validates SQL-source language, prepares signed media and writes UPGRADE-PLAN.txt.
+   Review and APPROVE the discovered CU once. The CU is downloaded, signature/build
+   checked and pinned in slipstream.json. Repeated preparation reuses this exact CU.
    German Windows with English SQL is supported. Non-English SQL sources are not qualified.
 3. Read the pending restart details. Edge file renames are shown with a likely-source
    label; they are never cleared. You can still use menu 2 for backups, but plan a
@@ -42,16 +44,24 @@ and remaining limits; fixture tests alone do not prove installer compatibility.
    a copyable interactive command. Its current checks reuse cached expensive evidence.
    An existing Setup session blocks another launch. Invalid evidence requests menu 3.
 4. In the wizard, select Installation > Upgrade from a previous version when needed.
+   On Product Updates confirm the pinned KB and keep Include SQL Server product
+   updates selected. Cancel before installing if the KB is missing or incorrect.
    Select the EXISTING intended instance, review rules/features and Ready to Upgrade,
    then click Upgrade yourself. Save Summary/Detail logs at Complete.
 5. Manual fallback runs Microsoft's Setup checks, not the package's backup/recovery
-   evidence checks. Complete menu 3 before using it. `/UPDATEENABLED=False` is explicit:
-   base Setup does not service itself. Microsoft Update checkbox controls future scans,
+   evidence checks. Complete menu 3 before using it. `/UPDATEENABLED=True` and the
+   pinned local `/UPDATESOURCE` integrate the CU. Microsoft Update controls future scans,
    whereas Include SQL Server product updates controls the current Setup operation.
 6. Close Setup, restart Windows, reopen the same package/runtime and run menu 5. This
-   quick check does not run CHECKDB and does not mark RTM as fully serviced.
+   quick check requires the exact pinned build and rejects RTM; it does not run CHECKDB.
+   Retain Setup Summary.txt with Slipstream=True, expected Patch Level and successful KB.
 
 ## Servicing and acceptance
+
+Menu 8 is optional later maintenance. A successful integrated CU upgrade plus menu 5
+already records verified servicing; a separate patch installation is unnecessary.
+Prepare selects the latest CU, not a newer standalone CU-branch security package.
+Review the official servicing table for intervening security releases before downtime.
 
 1. Menu 8 shows installed build, latest Microsoft CU and security release rows, plus
    an explicit recommended CU-branch build/KB/source. Review vendor compatibility and

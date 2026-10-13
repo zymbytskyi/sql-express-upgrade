@@ -1,17 +1,21 @@
 # Human-readable plans for the local v0.4 workflow.
 function Write-OperatorPlans {
     $p=Get-Content $planPath -Raw|ConvertFrom-Json
+    $cuText='NOT PREPARED: run menu 1 to approve and download the CU. Upgrade is blocked.'
+    $cuPath=Join-Path $WorkRoot 'slipstream.json'
+    if(Test-Path $cuPath){$cu=Get-Content $cuPath -Raw|ConvertFrom-Json;$cuText="$($cu.KB) | target $($cu.TargetBuild) | prepared $($cu.PreparedUtc) | $($cu.PackagePath)"}
     $text=@"
 SQL EXPRESS UPGRADE AND SERVICING PLAN
 Server: $($p.Computer) | Instance: $($p.Instance) | Source SQL: $($p.SourceBuild)
 Databases: $(@($p.Baseline.Databases.Name) -join ', ')
 Current backup directory: $($p.BackupDirectory)
 Prepared media: $WorkRoot\Media2022\setup.exe
+Pinned CU: $cuText
 
 1. Sign in to this SQL server. Start > Windows PowerShell > Run as administrator.
    Open Start-SqlExpressUpgradeMenu.ps1 from the installed package.
 2. Menu 1 discovers SQL language (not Windows language), prepares signed SQL 2022
-   Express x64 English media and shows pending restart details. It may prepare
+   Express x64 English media, pins an approved CU and shows pending restart details. It may prepare
    media while restart is pending; it does not clear registry indicators.
 3. Menu 2 recommends a backup folder using allocated SQL sizes + 2 GiB reserve.
    Press Enter or enter another dedicated local folder. COPY_ONLY/CHECKSUM backups
@@ -31,16 +35,19 @@ Prepared media: $WorkRoot\Media2022\setup.exe
    evidence, then opens interactive Setup. It never repeats a full rehearsal.
    In Setup: Installation > Upgrade from a previous version > select $($p.Instance).
    Review license/rules/Ready to Upgrade, then click Upgrade yourself.
-   UpdateEnabled=False excludes updates from THIS Setup. Microsoft Update checkbox
-   enables FUTURE Windows Update scans; it is not proof this installation is patched.
+   On Product Updates confirm the pinned KB above and keep Include SQL Server product
+   updates selected. If missing or wrong, cancel before Upgrade and inspect the local
+   UpdateSource. Microsoft Update controls FUTURE scans; it does not prove CU inclusion.
 9. At Complete inspect every feature and save logs from SQL Server\160\Setup Bootstrap\Log.
    Close Setup and restart Windows, then reopen the menu and choose 5 (quick checks).
-10. Menu 8 discovers CU/security candidates from Microsoft and shows installed/target
+10. Menu 8 is OPTIONAL later servicing, not a required second step after slipstream.
+    It discovers CU/security candidates from Microsoft and shows installed/target
     build, KB and source. Approve the servicing target, choose 0/1/2 pre-patch backups
     (none/system/all), and confirm PATCH only when writers are stopped and recovery ready.
     The selected instance is targeted; shared components can also be serviced.
     Read progress/log paths. Restart only when requested/approved, then use menu 5.
-11. Menu 5 checks connectivity/build, ONLINE databases, restart and approved compatibility.
+11. Menu 5 requires the exact pinned CU build on first acceptance, plus connectivity,
+    ONLINE databases, restart and approved compatibility. RTM fallback is rejected.
     It does not run CHECKDB. Menu 9 offers full CHECKDB separately (CPU/I/O intensive).
 12. Menu 12 optionally changes selected USER databases to compatibility 160 after
     verified patching. Confirm vendor/application support, retain displayed revert
@@ -131,6 +138,9 @@ function Select-BackupFolder {
 
 function Write-ReadinessReport([string]$Result,[string]$Reason='') {
     $lines=@("FINAL READINESS: $Result","Checked UTC: $([datetime]::UtcNow.ToString('u'))","Instance: $env:COMPUTERNAME\$InstanceName","Details: $Reason")
+    $cuPath=Join-Path $WorkRoot 'slipstream.json'
+    if(Test-Path $cuPath){$cu=Get-Content $cuPath -Raw|ConvertFrom-Json;$lines+="Pinned CU: $($cu.KB) | expected build: $($cu.TargetBuild) | prepared UTC: $($cu.PreparedUtc) | package: $($cu.PackagePath)"}
+    else{$lines+='CU NOT PREPARED: menu 1 is required before the major upgrade.'}
     $currentBuild=Get-LiveBuild
     $file=if($currentBuild -like '16.*'){Join-Path $WorkRoot 'backups-2022.json'}else{Join-Path $WorkRoot 'backups.json'}
     if(Test-Path $file){

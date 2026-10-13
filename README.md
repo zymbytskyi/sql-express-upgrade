@@ -1,6 +1,6 @@
 # SQL Express 2017 to 2022: local upgrade and servicing
 
-**v0.4.0-rc2 is a release candidate.** Run on the SQL server in elevated 64-bit
+**v0.5.0-rc1 is a release candidate.** Run on the SQL server in elevated 64-bit
 Windows PowerShell 5.1. Test against a restored non-production copy before a new
 production campaign. [Runbook](PRODUCTION-RUNBOOK.md), [migration](MIGRATION.md),
 [test evidence and limits](VALIDATION.md).
@@ -10,8 +10,8 @@ production campaign. [Runbook](PRODUCTION-RUNBOOK.md), [migration](MIGRATION.md)
 ```powershell
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion.Major -le 5) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 }
-$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.4.0-rc2.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.4.0-rc2/Install.ps1' -OutFile $installer -UseBasicParsing
+$installer = Join-Path $env:TEMP 'Install-SqlExpressUpgrade-v0.5.0-rc1.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/zymbytskyi/sql-express-upgrade/v0.5.0-rc1/Install.ps1' -OutFile $installer -UseBasicParsing
 Unblock-File $installer
 Set-ExecutionPolicy -Scope Process RemoteSigned -Force
 & $installer
@@ -27,11 +27,11 @@ No VM name, remote credentials or Hyper-V module is required for the SQL workflo
 
 | Item | Behavior |
 | --- | --- |
-| 1 Prepare | Discover SQL language; download/reuse English SQL 2022 Express media, verify metadata/signature/x64 layout, generate text plan. Pending restart is reported but does not prevent preparation. |
+| 1 Prepare | Download/reuse English SQL 2022 Express media; discover and approve the latest CU; verify signature/build and pin its SHA256 locally. Generate text plan. Repeated preparation reuses the pinned CU offline. |
 | 2 Backups | Choose capacity-ranked local folder; COPY_ONLY, CHECKSUM and VERIFYONLY. No compression, restore or CHECKDB. Restart indicators do not block valid backups. |
 | 3 Final readiness | Current upgrade prerequisites plus persisted VERIFYONLY evidence. Report backup age, files and mode. Completed backup-time verification is reused. |
-| 4 Upgrade | Show copyable manual command, current stage and UpdateEnabled=False; run current checks and require valid cached evidence, then open interactive Setup. No automatic Upgrade click/restart. |
-| 5 Quick Verify | Connectivity, SQL 2022 Express build, databases ONLINE, pending restart and approved compatibility. Explicit post-patch target verification; never repeats installation. |
+| 4 Upgrade | Validate pinned CU and cached backup evidence; open interactive Setup with UpdateEnabled=True and a dedicated local UpdateSource. No automatic Upgrade click/restart; no RTM fallback. |
+| 5 Quick Verify | Require the exact prepared CU build on initial acceptance, databases ONLINE, restart and approved compatibility. Record integrated servicing as Verified; never repeat installation. |
 | 6 Recovery plan | Provider-neutral text with recorded recovery reference. SQL 2017 backups remain necessary for SQL 2017 recovery. |
 | 7 Optional rehearsal | Confirm full user backup restores into unique scratch databases plus CHECKDB, after space/workload explanation. Failed tests are retained for diagnosis. |
 | 8 Patch | Review live Microsoft CU/security candidates and explicit target; optional 0/1/2 backups; selected-instance patch with progress/log locations and explicit restart choice. |
@@ -78,8 +78,8 @@ and backups protected. To force a revalidation, retain/archive the relevant vali
 JSON and run menu 3 again. A change causes an explicit invalidation reason.
 
 VERIFYONLY does not prove full restore/CHECKDB. Technical PASS does not prove
-application acceptance, external recovery or current servicing. The base media is
-RTM; menu 8 explicitly approves CU/security servicing and menu 5 verifies its target.
+application acceptance or external recovery. Base RTM media and a separately cached
+CU are integrated in one Setup operation. Menu 8 is optional subsequent servicing.
 An optional Hyper-V host helper remains separate under `optional/`. It is not used
 for Azure/other VM platforms. No in-place SQL downgrade is provided.
 
@@ -103,4 +103,17 @@ application vendor supports the latest CU. Shared SQL components can also be ser
 
 The Microsoft Update checkbox controls future Windows Update scans. Include SQL
 Server product updates (`UpdateEnabled`) affects the current Setup operation.
-The major-upgrade launcher uses `/UPDATEENABLED=False`; servicing is menu 8.
+The major-upgrade launcher uses `/UPDATEENABLED=True`, a local `/UPDATESOURCE`,
+and `/UIMODE=Normal`. Keep **Include SQL Server product updates** selected and
+confirm the pinned KB in the Wizard. Missing/changed CU files block the launcher;
+an unexpected resulting build blocks initial acceptance.
+
+`slipstream.json` records the approved CU, build, source, SHA256 and campaign identity.
+Menu 1 selects the latest **CU** from Microsoft Download Center; it does not claim
+to incorporate a newer standalone CU-branch security release automatically. Review
+Microsoft's servicing table/KB known issues before approval. Menu 8 remains available
+for later security/CU maintenance. No network refresh occurs on the upgrade day.
+To deliberately change the pinned CU before upgrading, retain the old slipstream.json
+under a dated archive name, rerun menu 1 and repeat menu 3 and your rehearsal. Do not
+change the target after opening Setup. Old update packages remain in separate folders.
+Runtime integrity relies on administrator-controlled files, not an adversarial trust boundary.

@@ -12,6 +12,8 @@ function Get-Boot {'before'}
 function Get-SourceLanguage {param($Instance) 1033}
 function Assert-ExtractedMedia {param($Directory,$Language)}
 function Save-State {}
+function Get-SlipstreamArguments {@('/ACTION=Upgrade','/INSTANCENAME=APPDATA','/UPDATEENABLED=True','/UPDATESOURCE="C:\Fixture Updates"','/UIMODE=Normal')}
+function Read-SlipstreamTarget {[pscustomobject]@{Sha256=('A'*64);TargetBuild='16.0.4295.3'}}
 function Run-Worker {param($Action) $script:checks+=,$Action}
 function Start-Process {param($FilePath,$ArgumentList) $script:launched++;$script:arguments=$ArgumentList}
 # Worker invocations are captured instead of executing SQL.

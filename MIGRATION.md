@@ -2,12 +2,15 @@
 
 1. Finish any active SQL Setup. Close the old menu. Copy the protected runtime
    directory and original backup manifests off-server before changing tools.
-2. Install v0.4.0-rc2 into its new package directory; leave older packages intact.
+2. Install v0.5.0-rc1 into its new package directory; leave older packages intact.
    Open it on the SAME server and instance with the existing WorkRoot. Schema-1 plan
    identity, source baseline and boot state remain supported; no campaign reset occurs.
 3. Existing plans/media remain. Preparation validates actual metadata; rejected or
    incomplete downloaded/extracted artifacts are moved to unique `.rejected-*` paths.
    Valid backups/media are not deleted to make a retry work. Never rename DEU to ENU.
+   For a SQL 2017 source, rerun menu 1 to prepare the pinned CU. Older media-only
+   plans cannot launch the new Wizard until slipstream.json exists and validates.
+   Existing SQL 2022 campaigns without this record retain menu 8 servicing.
 4. Old `rehearsal.json` is historical evidence, not silently trusted as a v0.4 cache.
    Menu 3 builds new mode-bound evidence. New full backups save VERIFYONLY evidence
    immediately; subsequent menu 3/4 reuse it when inputs match. Menu 4 will not run a

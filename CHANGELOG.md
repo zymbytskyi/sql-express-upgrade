@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0-rc1 - 2026-10-13
+
+- Prepare and pin an approved Microsoft CU with source/build/signature/SHA256 checks.
+  Reuse it offline; block missing, modified, wrong-build or mixed update sources.
+- Launch the interactive Upgrade Wizard with local Product Updates enabled and
+  Normal UI. First acceptance requires the exact prepared build after restart.
+- Record slipstream servicing for completion and compatibility gates; retain menu 8
+  for subsequent servicing and older already-upgraded campaigns.
+- Add rejection tests, English target-specific guidance and real CU27 engine/reboot/
+  rollback evidence. See VALIDATION.md for package integration results and limitations.
+
 ## 0.4.0-rc2 - 2026-10-01
 
 - Fix a real-lab CU failure: SQL Setup rejects NORESTART with 0x84b40003. Use the

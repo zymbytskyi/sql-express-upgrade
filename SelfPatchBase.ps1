@@ -39,7 +39,8 @@ function Get-LatestPackage {
     Write-Host "Downloading $($Update.Name) $($Update.KB) from Microsoft..."
     try {
         if (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue) {
-            Start-BitsTransfer -Source $Update.Uri -Destination $partial -DisplayName 'SQL Server 2022 CU'
+            try { Start-BitsTransfer -Source $Update.Uri -Destination $partial -DisplayName 'SQL Server 2022 CU' -ErrorAction Stop }
+            catch { Write-Host 'BITS unavailable; retrying download over HTTPS.'; Invoke-WebRequest -Uri $Update.Uri -OutFile $partial -UseBasicParsing }
         }
         else {
             Invoke-WebRequest -Uri $Update.Uri -OutFile $partial -UseBasicParsing

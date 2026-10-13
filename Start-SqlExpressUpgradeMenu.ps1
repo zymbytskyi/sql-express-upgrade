@@ -95,14 +95,14 @@ try{
         do{
             Write-Host "`nLOCAL SQL Express 2017 -> 2022 | $env:COMPUTERNAME\$InstanceName"
             Write-Host "Phase: $($script:state.Phase) | Runtime: $WorkRoot"
-            Write-Host '1 Prepare - instance, plan, checks and media'
+            Write-Host '1 Prepare - instance, plan, media and pinned CU'
             Write-Host '2 Backups - COPY_ONLY/CHECKSUM + VERIFYONLY (no restore)'
             Write-Host '3 Final readiness - VERIFYONLY + persisted validation'
-            Write-Host '4 Upgrade - open SQL Setup Wizard'
+            Write-Host '4 Upgrade - open SQL Setup Wizard with pinned CU'
             Write-Host '5 Verify after upgrade and Windows restart'
             Write-Host '6 Rollback plan and instance-specific scripts'
             Write-Host '7 Optional full restore rehearsal + CHECKDB (expensive)'
-            Write-Host '8 SQL 2022 CU/security patch (selected instance)'
+            Write-Host '8 Optional later SQL 2022 CU/security patch (selected instance)'
             Write-Host '9 Optional full CHECKDB (expensive)'
             Write-Host '10 Register manually created backups | 11 Record external recovery'
             Write-Host '12 Optional compatibility 160 | 13 Completion summary'
@@ -134,7 +134,7 @@ try{
         }while($choice -ne '0')
     }else{
         switch($Mode){
-            Prepare {Prepare-Local} Preflight {Run-Worker Preflight}
+            Prepare {Prepare-Local} Preflight {Final-Readiness}
             Backup {Assert-BackupPhase;Run-Worker Backup} Rehearse {Invoke-OptionalRehearsal}
             Recovery {Write-RecoveryPlan} Upgrade {Open-UpgradeWizard}
             Verify {Verify-Local} Restart {Restart-Local}

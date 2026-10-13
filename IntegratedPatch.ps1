@@ -38,7 +38,7 @@ function Invoke-IntegratedPatch {
     if(-not$recommended.Count){throw 'No CU servicing-branch target could be established.'}
     $target=$recommended[0]
     Write-Host "Installed: $($live.Server.Build) | CU download: $($cu.KB) $($cu.Version) | recommended CU/security target: $($target.KB) $($target.Build)"
-    Write-Host 'Microsoft Update checkbox enrolls future Windows Update scans. Include SQL Server product updates / UpdateEnabled applies to the current Setup. Upgrade uses /UPDATEENABLED=False; this is the separate servicing step.'
+    Write-Host 'This is optional later SQL 2022 servicing. New major upgrades integrate their pinned CU through local Product Updates; Microsoft Update enrollment controls future scans.'
     if((Read-Host "Approve servicing target $($target.KB) $($target.Build) after reviewing application/vendor requirements? Type APPROVE") -cne 'APPROVE'){return}
     $record=[ordered]@{PlanId=$p.Id;Instance=$p.Instance;KB=$target.KB;TargetBuild=$target.Build;Source=$target.Source;BeforeBuild=$live.Server.Build;BootBefore=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o');Status='Selected';ExitCode=$null;CheckedUtc=[datetime]::UtcNow.ToString('o')}
     if([version]$live.Server.Build -ge [version]$target.Build){$record.Status='Installed';Save-Json (Join-Path $WorkRoot 'patch-state.json') $record;Write-Host 'Selected target already met. Run menu 5 for explicit verification; no installation repeated.';return}

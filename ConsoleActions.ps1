@@ -6,6 +6,7 @@ foreach($definition in $workerAst.EndBlock.Statements | Where-Object {$_ -is [Ma
 . (Join-Path $PSScriptRoot 'WorkflowOperations.ps1')
 . (Join-Path $PSScriptRoot 'MediaSupport.ps1')
 . (Join-Path $PSScriptRoot 'IntegratedPatch.ps1')
+. (Join-Path $PSScriptRoot 'Slipstream.ps1')
 $ValidationMode='VerifyOnly';$BackupScope='All'
 function Assert-BackupPhase {
     if(Get-Process setup -ErrorAction SilentlyContinue){throw 'Setup is running. Wait until it completes before starting backups.'}
@@ -26,6 +27,7 @@ function Prepare-Local {
         if(-not$MediaPath){& (Join-Path $PSScriptRoot 'Save-Sql2022ExpressMedia.ps1') -Destination (Join-Path $WorkRoot 'Downloads') -SourceLanguage (Get-SourceLanguage $InstanceName)}
         Invoke-Prepare
     }else{Assert-ExtractedMedia (Join-Path $WorkRoot 'Media2022') (Get-SourceLanguage $InstanceName)|Out-Null}
+    Prepare-Slipstream
     $script:state.Phase='Prepared';Save-State
     Write-RecoveryPlan
     Write-Host 'Preparation finished. Upgrade-only reboot checks were reported, not bypassed. Next: menu 2 then 3.'
@@ -35,6 +37,7 @@ function Final-Readiness {
         Assert-PreparationPhase
         Write-ReadinessReport 'CHECKING' 'Default validation is VERIFYONLY WITH CHECKSUM; no scratch restore or CHECKDB.'
         Run-Worker Preflight
+        $null=Assert-SlipstreamMedia
         & $worker -Mode ValidateBackups -WorkRoot $WorkRoot -InstanceName $InstanceName -ValidationMode VerifyOnly
         Write-ReadinessReport 'TECHNICAL CHECKS PASSED' 'VERIFYONLY WITH CHECKSUM (not restore/CHECKDB). Validation persisted for launcher reuse. External recovery and application acceptance remain operator responsibilities.'
     }catch{$failure=$_;Write-ReadinessReport 'NOT READY' $failure.Exception.Message;throw $failure}
@@ -43,19 +46,23 @@ function Open-UpgradeWizard {
     $setup=Join-Path $WorkRoot 'Media2022\setup.exe'
     Write-Host "Prepared Setup: $setup"
     $escaped=$setup.Replace("'","''")
-    Write-Host "Manual fallback: & '$escaped' /ACTION=Upgrade /INSTANCENAME=$InstanceName /UPDATEENABLED=False"
-    Write-Host 'Manual route runs Microsoft Setup rules only. It does not validate this package plan, backup evidence or external recovery. Run menu 3 first. Microsoft Update controls future scans; UpdateEnabled=False excludes updates from this Setup operation.'
+    Write-Host 'Manual command is shown after media and backup checks. Product Updates must include the prepared CU; do not clear that checkbox.'
     if(Get-Process setup -ErrorAction SilentlyContinue){throw 'Setup already running. Switch to that window; no second session launched.'}
     if([Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0){throw 'Open the menu in an interactive desktop/RDP PowerShell window to launch Setup.'}
     if((Get-LiveBuild) -notlike '14.*'){throw 'Upgrade requires SQL 2017. Use Verify/Patch for SQL 2022.'}
     Write-Host '[1/3] Current instance, restart, media integrity and capacity checks...'
     Run-Worker Preflight
     Assert-ExtractedMedia (Join-Path $WorkRoot 'Media2022') (Get-SourceLanguage $InstanceName)|Out-Null
+    $setupArguments=@(Get-SlipstreamArguments)
     Write-Host '[2/3] Reusing completed expensive validation (no restore or CHECKDB will run)...'
     & $worker -Mode ReuseValidation -WorkRoot $WorkRoot -InstanceName $InstanceName -ValidationMode VerifyOnly
+    $target=Read-SlipstreamTarget
+    $script:state|Add-Member NoteProperty SlipstreamSha256 $target.Sha256 -Force
+    $script:state|Add-Member NoteProperty SlipstreamBuild $target.TargetBuild -Force
+    Write-Host ("Manual fallback (Microsoft checks only): & '$escaped' "+($setupArguments -join ' '))
     Write-Host '[3/3] Opening interactive wizard; you control Upgrade and restart.'
     $script:state.BootBeforeSetup=Get-Boot;$script:state.Phase='WizardOpened';Save-State
-    Start-Process -FilePath $setup -ArgumentList @('/ACTION=Upgrade',"/INSTANCENAME=$InstanceName",'/UPDATEENABLED=False')|Out-Null
+    Start-Process -FilePath $setup -ArgumentList $setupArguments|Out-Null
 }
 function Invoke-OptionalRehearsal {
     $p=Read-Plan;$live=Get-Inventory $p.Instance
@@ -68,6 +75,7 @@ function Verify-Local {
     if((Get-LiveBuild) -notlike '16.*'){throw 'SQL is still on the old version. Complete the wizard before verification.'}
     if($script:state.BootBeforeSetup -and (Get-Boot) -eq $script:state.BootBeforeSetup){throw 'Restart the server after completing Setup, then Verify.'}
     Run-Worker Verify
+    Assert-SlipstreamBuild
     $path=Join-Path $WorkRoot 'patch-state.json'
     if(Test-Path $path){
         $patch=Get-Content $path -Raw|ConvertFrom-Json
@@ -77,6 +85,7 @@ function Verify-Local {
         if([version](Get-LiveBuild) -lt [version]$patch.TargetBuild){throw 'Installed build is below approved patch target.'}
         $patch.Status='Verified';Save-Json $path $patch
     }
+    Complete-SlipstreamVerification
     $script:state.Phase='DatabaseChecksPassed';Save-State;Write-CompletionSummary
 }
 function Write-RecoveryPlan {

@@ -1,4 +1,4 @@
-# Validation record - v0.4.0-rc2
+# Validation record - v0.5.0-rc1
 
 Date: 2026-10-01. Release candidate: **not production-certified**.
 
@@ -82,6 +82,61 @@ logs, media, backups and recovery artifacts remain outside Git.
 - The published rc1 installer was executed on the main lab guest with NoLaunch,
   including GitHub ZIP digest validation and a second existing-folder invocation.
   Its existing SQL/runtime were not changed.
+
+## CU slipstream engine rehearsal - 2026-10-13
+
+The user approved the CU servicing branch and a real Hyper-V rehearsal. DC01 and
+the existing SQLEXPRESS17 guest were started/kept running on the internal lab
+network. No additional VM was created and no production machine was changed.
+
+- Source: SQL Server 2017 Express 14.0.1000.169, named SQLEXPRESS instance,
+  English SQL on Windows Server 2022. A COPY_ONLY/CHECKSUM backup, VERIFYONLY and
+  CHECKDB passed before an offline checkpoint was captured.
+- Cached Microsoft CU27 KB5104824 had a valid Authenticode signature and SHA256
+  matching Microsoft's published value. The complete EXE was placed in a local
+  Updates folder alongside the existing extracted Express 2022 media.
+- One lab-only unattended Setup invocation used ACTION=Upgrade,
+  INSTANCENAME=SQLEXPRESS, UPDATEENABLED=True and the local UPDATESOURCE.
+  No separate ACTION=Patch invocation was performed. Setup exited 0 with Passed,
+  Slipstream=True, Patch Level=16.0.4295.3 and Product Update Success: KB 5104824.
+- A SQL query confirmed 16.0.4295.3. The original two demonstration rows and their
+  checksum matched. CHECKDB passed for the user database, master, model and msdb.
+- An actual VM shutdown/start was observed through a changed guest boot timestamp.
+  The target build, data and domain trust passed again, followed by a real SQL write.
+- Restoring the fresh checkpoint returned 14.0.1000.169 and the original rows and
+  checksum, discarded the test write, and passed all four CHECKDB checks and domain
+  trust. The guest remains running on SQL 2017 for further package testing.
+- Raw Setup logs and before/after/recovery evidence are retained outside Git under
+  C:\AI\Data\sqlserver-alwayson-lab\Hyper-V\SlipstreamAcceptance20261013.
+
+This initial run qualified the engine mechanism. The package integration was then
+implemented and tested separately as recorded below.
+
+## v0.5.0-rc1 package acceptance - 2026-10-13
+
+- Five Windows PowerShell 5.1 suites cover existing safety/workflow/guidance plus
+  CU identity, signature, hash, build, mixed-source, missing-record and RTM rejection.
+  GUI process creation is mocked in the launcher suite; no visible click-through is claimed.
+- The actual Prepare entry point ran in the SQL 2017 guest using live Microsoft
+  Download Center discovery, an operator approval supplied by the lab harness and
+  a pre-staged real CU27 EXE. Signature, Defender scan, build and pinned record passed.
+  Preparation reported a pending Edge restart; it was resolved through a real reboot,
+  without deleting registry indicators. Fresh CU network transfer was not exercised.
+- Actual Backup and Preflight entry points passed: fresh COPY_ONLY/CHECKSUM backups,
+  VERIFYONLY evidence, all base-media hashes, CU integrity and target-aware readiness.
+- A second real Setup invocation used Get-SlipstreamArguments from the package;
+  only the lab harness replaced Normal UI with quiet/license flags. Setup completed
+  in one operation with exit 0, Slipstream=True and KB5104824 / 16.0.4295.3.
+- After reboot, the real Verify entry point recorded slipstream and servicing as
+  Verified, retained original user compatibility 140, and generated completion output.
+  Original rows/checksum, user CHECKDB and domain trust passed independently.
+- Evidence is outside Git in the lab Hyper-V SlipstreamPackage050Acceptance directory.
+  The prepared SQL 2017 checkpoint is retained for another operator rehearsal.
+
+Visible Wizard click-through, fresh CU network download, newer CU/security packages,
+large production workloads and application acceptance remain outside this qualification.
+The release remains a candidate. The prepared target is the latest CU from Download
+Center; newer standalone CU-branch security releases require separate review/servicing.
 
 ## Remaining limits
 
